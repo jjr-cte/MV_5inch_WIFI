@@ -64,7 +64,7 @@ int config_pin_mux(void)
     /* PIN remapping for UART, SPI and SDIO */
 #if defined (__ATCMD_IF_UART1__) || defined (__SUPPORT_UART1__)
   #if !defined (__UART1_FLOW_CTRL_ON__)
-    _da16x_io_pinmux(PIN_CMUX, CMUX_UART1d);
+	_da16x_io_pinmux(PIN_CMUX, CMUX_UART1d);
   #else
     //UART1(CTS-GPIO[5],RTS-GPIO[4])
     _da16x_io_pinmux(PIN_CMUX, CMUX_UART1c);

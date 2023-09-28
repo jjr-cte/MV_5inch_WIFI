@@ -60,7 +60,7 @@
 #endif // (USE_HEAP_MEM)
 
 /// Disable version checking for debugging
-#undef DISABLE_OTA_VER_CHK
+#define DISABLE_OTA_VER_CHK //Timmy
 
 /// OTA update thread name
 #define	OTA_TASK_NAME				"OTA_update"

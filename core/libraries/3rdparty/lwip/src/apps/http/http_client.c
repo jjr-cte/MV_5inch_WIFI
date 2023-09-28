@@ -82,7 +82,7 @@
 #define HTTPC_DEBUG_SERIOUS      (HTTPC_DEBUG | LWIP_DBG_LEVEL_SERIOUS)
 
 #define HTTPC_POLL_INTERVAL     1
-#define HTTPC_POLL_TIMEOUT      30
+#define HTTPC_POLL_TIMEOUT      5 //Timmy
 
 #ifdef HTTPC_BUF_USE_HEAP
 #ifdef __HTTPC_USER_MSG__
@@ -273,6 +273,13 @@ char g_input_method[10];
     "%s\r\n"
 #define HTTPC_POST_REQ_11_PROXY_PORT_AUTH_FORMAT(method, host, host_port, uri, srv_name, auth_basic, data, data_len) \
 	HTTPC_POST_REQ_11_PROXY_PORT_AUTH, method, host, host_port, uri, HTTPC_CLIENT_AGENT, srv_name, data_len, auth_basic, data
+
+//Timmy
+/* PUT/POST request with host */
+#define HTTPC_CUSTOMIZED_COMMAND "%s"
+
+#define HTTPC_CUSTOMIZED_COMMANDFORMAT(data) \
+		HTTPC_CUSTOMIZED_COMMAND, data
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -555,6 +562,21 @@ httpc_tcp_recv(void *arg, struct altcp_pcb *pcb, struct pbuf *p, err_t r)
       pbuf_free(p);
     }
   }
+  else if (p != NULL) //Timmy
+  {
+      //PRINTF("\n[%s:%d] COMMAND FROM APP\n", __func__, __LINE__);
+      //hex_dump(p->payload, p->len);
+	  char *myLog = NULL;
+	  myLog = (char *)calloc((p->len + 1), sizeof(char));
+	  if(myLog != NULL)
+	  {
+	      memcpy(myLog, p->payload, p->len);
+	      PRINTF("\n%s\n", myLog);
+	      free(myLog);
+	  }
+      pbuf_free(p);
+  }
+
   return ERR_OK;
 }
 
@@ -986,8 +1008,8 @@ httpc_create_request_string(const httpc_connection_t *settings, const char* serv
 					vPortFree(auth_basic);
 				return ret_len;
 			} else {
-				ret_len = snprintf(buffer, buffer_size, HTTPC_POST_REQ_11_HOST_FORMAT(g_input_method,
-		  						parse_uri, server_name, g_input_data, strlen(g_input_data)));
+				//Timmy
+				ret_len = snprintf(buffer, buffer_size, HTTPC_CUSTOMIZED_COMMANDFORMAT(g_input_data));
 				if (parse_uri != NULL)
 					vPortFree(parse_uri);
 				if (auth_basic != NULL)

@@ -31,17 +31,21 @@
  */
 
 #include "user_atcmd.h"
+#include "user_define.h"
 
 #if defined ( __SUPPORT_ATCMD__ )
 
-#undef    __TEST_USER_AT_CMD__
+#define    __TEST_USER_AT_CMD__
 
 extern int atq_result;
+//Timmy
+extern int g_ota_mcu_uart_idx;
 
 /* Internal functions */
 #if defined (  __TEST_USER_AT_CMD__ )
-int user_atcmd_test(int argc, char* argv[]);
-int user_atcmd_test_1(int argc, char* argv[]);
+int cte_nxp_fw_demo(int argc, char* argv[]);
+int cte_socket_client_demo_1(int argc, char* argv[]);
+int cte_socket_client_demo_2(int argc, char* argv[]);
 #endif  // __TEST_USER_AT_CMD__
 
 /* AT COMMANDS */
@@ -50,8 +54,9 @@ static const command_t user_at_cmd[] =
   /* cmd,    function,    arg_count,    delimit,    format,    brief */
 
 #ifdef    __TEST_USER_AT_CMD__
-  { (char *)"USER_TEST",   user_atcmd_test,   0, (char *)NULL,                      "User test at-cmd." },
-  { (char *)"USER_TEST_1", user_atcmd_test_1, 2, (char *)"<command>=<arg1>,<arg2>", "User test at-cmd." },
+  { (char *)"CTE", cte_nxp_fw_demo,   0, (char *)NULL,                      "User test at-cmd." },
+  { (char *)"SC1", cte_socket_client_demo_1, 2, (char *)"<command>=<arg1>,<arg2>", "User test at-cmd." },
+  { (char *)"SC2", cte_socket_client_demo_2, 2, (char *)"<command>=<arg1>,<arg2>", "User test at-cmd." },
 #endif    /* __TEST_USER_AT_CMD__ */
 
   { NULL, NULL, 0, NULL, NULL }
@@ -291,29 +296,52 @@ user_atcmd_result :
  *****************************************************************************/
 
 #if defined ( __TEST_USER_AT_CMD__ )
-int user_atcmd_test(int argc, char *argv[])
+
+int cte_nxp_fw_demo(int argc, char* argv[])
 {
     DA16X_UNUSED_ARG(argc);
     DA16X_UNUSED_ARG(argv);
 
     atcmd_error_code result = AT_CMD_ERR_CMD_OK;
 
-    PRINTF("\n\n----- User AT-CMD Test Command arrived ...\n");
+    nxp_script_select(pGetProperty01_1);
 
     return result;
 }
 
-int user_atcmd_test_1(int argc, char *argv[])
+int cte_socket_client_demo_1(int argc, char *argv[])
 {
     DA16X_UNUSED_ARG(argc);
 
     if (argc < 3) {
-        PRINTF("[%s] Wrong arguments ...\n", __func__);
+    	PRINTF_ATCMD("[%s] Wrong arguments ...\n", __func__);
         return AT_CMD_ERR_INSUFFICENT_ARGS;
     }
 
-    PRINTF("\n\n----- User AT-CMD Test Command arrived ...\n");
-    PRINTF("%s=%s,%s\n", argv[0], argv[1], argv[2]);
+    //PRINTF_ATCMD("%s=%s,%s\n", argv[0], argv[1], argv[2]);
+
+    sendInformationToMessageServer(argv[2], atoi(argv[1]));
+
+    return AT_CMD_ERR_CMD_OK;
+}
+
+int cte_socket_client_demo_2(int argc, char *argv[])
+{
+    DA16X_UNUSED_ARG(argc);
+
+    if (argc < 3) {
+    	PRINTF_ATCMD("[%s] Wrong arguments ...\n", __func__);
+        return AT_CMD_ERR_INSUFFICENT_ARGS;
+    }
+
+    //PRINTF_ATCMD("%s=%s,%s\n", argv[0], argv[1], argv[2]);
+
+    int cid = create_tcpc_manual();
+    if (cid != -1)
+    {
+        sendInformationToMessageServer(argv[2], atoi(argv[1]));
+        cancel_all_socket_session(cid);
+    }
 
     return AT_CMD_ERR_CMD_OK;
 }

@@ -476,7 +476,7 @@
     // When enable this feature, more detail features are support below sub-features.
     // User can check all AT-CMDs in ~/core/system/src/at_cmd/atcmd.c
     //
-    #undef  __SUPPORT_ATCMD__
+    #define  __SUPPORT_ATCMD__ //Timmy
 
 
 //-----------------------
@@ -844,7 +844,7 @@
 
 
     #if defined ( __SUPPORT_OTA__ )
-        #undef  __OTA_UPDATE_MCU_FW__                       // Default disable when undef __SUPPORT_ATCMD__
+        #define  __OTA_UPDATE_MCU_FW__ //Timmy                       // Default disable when undef __SUPPORT_ATCMD__
     #endif //__SUPPORT_OTA__
 
 

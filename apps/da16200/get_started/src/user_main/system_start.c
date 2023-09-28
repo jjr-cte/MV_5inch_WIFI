@@ -406,6 +406,11 @@ static void config_gpio_button(void)
     }
 #endif  // __TRIGGER_MCU_WAKEUP__
 
+    //Timmy
+    _GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN8);
+    //_GPIO_RETAIN_LOW(GPIO_UNIT_A, GPIO_PIN9);
+    _GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN10);
+    _GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN11);
 }
 
 void trigger_mcu_wakeup_gpio(void)

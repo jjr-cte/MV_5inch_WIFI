@@ -737,7 +737,14 @@ static void atcmd_tcpc_task_entry(void *param)
 
 		//ATCMD_TCPC_INFO("Waiting to receive packet(cid:%d)\n", cid);
 
+		//CSH: Get data from socket server.
 		ret = recv(ctx->socket, payload, payload_len, 0);
+		//CSH: Get data and pass to CTE control flow.
+		if (ret > 0) {
+			CTEGetSocketServerData(payload, ret);
+		}
+		//CSH: Call CTE main flow.
+		CTESocketCtrlFlow();
 
 		dpm_app_sleep_ready_clear((char *)dpm_name);
 

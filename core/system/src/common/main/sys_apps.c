@@ -46,6 +46,7 @@
 #include "common_def.h"
 #include "mqtt_client.h"
 #include "lwip/dhcp.h"
+#include "atcmd.h"
 
 #ifdef __SUPPORT_ZERO_CONFIG__
 #include "zero_config.h"
@@ -450,6 +451,10 @@ static void run_sys_apps(void)
         iface = WLAN0_IFACE;
 
         read_nvram_int((const char *)NVR_KEY_NETMODE_0, (int *)&tmpValue);
+
+        //CSH: It's AT+DEFAP CMD, load default setting and open soft AP mode.
+        da16x_set_default_ap_config();
+        vTaskDelay(100);
 
         if (tmpValue == ENABLE_DHCP_CLIENT || tmpValue == -1) {
             i = 0;

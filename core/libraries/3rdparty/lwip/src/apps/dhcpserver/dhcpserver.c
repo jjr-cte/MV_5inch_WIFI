@@ -1547,6 +1547,11 @@ void dhcps_print_lease_pool(u8_t is_print_assigned)
     PRINTF("Total Lease IP: %d\n\n", count);
 }
 
+ip4_addr_t* dhcpd_get_remote_address(void)
+{
+    return &client_address;
+}
+
 void dhcps_set_lease_time(dhcps_time_t ltime)
 {
 	dhcps_set_option_info(IP_ADDRESS_LEASE_TIME, &ltime, sizeof(dhcps_time_t));

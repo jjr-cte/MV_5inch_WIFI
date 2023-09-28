@@ -36,7 +36,8 @@
 #include "da16x_system.h"
 #include "application.h"
 #include "common_def.h"
-
+//CSH: Call CTE function at atcmd.c
+#include "atcmd.h"
 
 /******************************************************************************
  * External global functions
@@ -143,6 +144,8 @@ static void user_wifi_conn(void *arg)
 {
     DA16X_UNUSED_ARG(arg);
 
+    ap_wifi_conn_flag = TRUE;
+
     while (TRUE) {
         if (wifi_conn_flag == TRUE) {
             /*
@@ -172,6 +175,12 @@ static void user_wifi_conn(void *arg)
             xSemaphoreTake(wifi_conn_notify_mutex, 300);
             ap_wifi_conn_flag = FALSE;
             xSemaphoreGive(wifi_conn_notify_mutex);
+
+            //CSH: If end device link to DA16200(AP Mode), auto create socket link to end device(server).
+            vTaskDelay(100);
+            SetCTESocketConnection();
+//            vTaskDelay(500);
+            SetCTEStatus(eCTE_Socket_MD);
         }
 
         /* loop time delay : 10 msec */
