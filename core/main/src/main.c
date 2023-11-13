@@ -55,6 +55,8 @@
 #include "project_config.h"
 #include "SEGGER_RTT.h"
 
+#include "cmsis_device.h"
+
 // ----------------------------------------------------------------------------
 //
 // Print a greeting message on the trace device and enter a loop
@@ -135,6 +137,12 @@ main (int argc, char* argv[])
 {
 	DA16X_UNUSED_ARG(argc);
 	DA16X_UNUSED_ARG(argv);
+
+	for (size_t i = 0; i < 100000; i++) {
+	    for (size_t j = 0; j < 1000; j++) {
+	        __NOP();
+	    }
+	}
 
 	// Normally at this stage most of the microcontroller subsystems, including
 	// the clock, were initialised by the CMSIS SystemInit() function invoked
