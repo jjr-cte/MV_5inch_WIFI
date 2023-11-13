@@ -1417,7 +1417,7 @@ static void monitor_atcmd(void)
         } else
 #endif // __SUPPORT_DPM_ABNORM_MSG__
         if (!is_in_softap_acs_mode()) {
-            PRINTF_ATCMD("\r\n+INIT:DONE,%d\r\n", get_run_mode()); //Timmy
+            PRINTF_ATCMD("\r\n+INIT:DONE,%d\r\n", get_run_mode());
 
             if (get_run_mode() == SYSMODE_AP_ONLY) {
                 set_INIT_DONE_msg_to_MCU_on_SoftAP_mode(pdTRUE);
@@ -2590,11 +2590,7 @@ atcmd_result:
 #endif  // __SUPPORT_PASSIVE_SCAN__
             ) {
                 if (atq_result == 1) {
-                    //Timmy
-                	if(ota_update_http_client_get_run_fw_type() != OTA_TYPE_MCU_FW)
-                    {
-                        PRINTF_ATCMD("\r\nOK\r\n");
-                    }
+                    PRINTF_ATCMD("\r\nOK\r\n");
                 }
 
                 atcmd_mqtt_msg_qos0_dpm_rsp_handle();
@@ -5564,65 +5560,6 @@ atcmd_wifi_end :
     }
 
     return err_code;
-}
-
-//Timmy
-ota_update_type ota_update_http_client_get_run_fw_type(void)
-{
-	return atcmd_ota_conf->update_type;
-}
-
-//Timmy
-void myCommand(char *messages)
-{
-	char URL[64];
-    memset(URL, '\0', sizeof(URL));
-    sprintf(URL, "http://%s:55555", ipaddr_ntoa(dhcpd_get_remote_address()));
-
-    char *myCmd[15] = {0, };
-    int myCounter = 0;
-    myCmd[myCounter] = "";
-    myCounter++;
-    myCmd[myCounter] = "-i";
-    myCounter++;
-    myCmd[myCounter] = "wlan1";
-    myCounter++;
-    myCmd[myCounter] = URL;
-    myCounter++;
-    myCmd[myCounter] = "-put";
-    myCounter++;
-    myCmd[myCounter] = messages;
-    myCounter++;
-    run_user_http_client(myCounter, myCmd);
-}
-
-//Timmy
-void sendInformationToMessageServer(char *messages, int message_length)
-{
-	atcmd_sess_context *ctx = NULL;
-	for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i ++)
-	{
-	    ctx = atcmd_transport_find_context(i);
-	    if (ctx != NULL)
-	    {
-	        if ((ctx->type == ATCMD_SESS_TCP_CLIENT) && (ctx->ctx.tcpc->state == ATCMD_TCPC_STATE_CONNECTED))
-	        {
-	            char gw_str[16] = {0, };
-	            da16x_get_config_str(DA16X_CONF_STR_GATEWAY_0, gw_str);
-	            if (strlen(gw_str) == 0)
-	            {
-	                PRINTF_ATCMD("\r\n[ERROR] Disconnect");
-	            }
-	            else
-	            {
-	                if (atcmd_tcpc_tx_with_peer_info(ctx->ctx.tcpc, gw_str, 55555, messages, message_length) != 0)
-	                {
-	                    PRINTF_ATCMD("\r\n--->[ERROR] TCP_CLIENT_DATA_TRANSFER_FAIL");
-	                }
-	            }
-	        }
-	    }
-	}
 }
 
 int atcmd_network(int argc, char *argv[])
@@ -9447,47 +9384,6 @@ atcmd_transport_end:
     }
 
     return err_code;
-}
-
-void cancel_all_socket_session(int cid)
-{
-	int ret = 0;
-    ret = atcmd_network_terminate_session(cid);
-
-    if (ret)
-    {
-        switch (ret)
-        {
-            case -1 : PRINTF_ATCMD("\r\nAT_CMD_ERR_TCP_SERVER_TERMINATE"); break;
-            case -2 : PRINTF_ATCMD("\r\nAT_CMD_ERR_TCP_CLIENT_TERMINATE"); break;
-            case -3 : PRINTF_ATCMD("\r\nAT_CMD_ERR_UDP_SESSION_TERMINATE"); break;
-            case -4 : PRINTF_ATCMD("\r\nAT_CMD_ERR_MULTI_SESSION_CID_TERMINATE"); break;
-            default: PRINTF_ATCMD("\r\n-->%d", ret); break;
-        }
-    }
-}
-
-int create_tcpc_manual(void)
-{
-    atcmd_sess_context *ctx = NULL;
-    ctx = atcmd_transport_create_context(ATCMD_SESS_TCP_CLIENT);
-    if (ctx != NULL)
-    {
-        if (atcmd_network_connect_tcpc(ctx, ipaddr_ntoa(dhcpd_get_remote_address()), 55555, 55555))
-        {
-            PRINTF_ATCMD("\r\nTCPC create fail\r\n");
-            if (ctx)
-            {
-                atcmd_transport_delete_context(ctx->cid);
-                ctx = NULL;
-            }
-        }
-        else
-        {
-            return ctx->cid;
-        }
-    }
-    return -1;
 }
 
 static int atcmd_transport_set_max_session(const unsigned int cnt)
@@ -16421,11 +16317,7 @@ void atcmd_asynchony_event(int index, char *buf)
 
 #if defined (__SUPPORT_OTA__)
     case 6: {    //ATC_EV_OTADWSTART:
-        //Timmy
-    	if(ota_update_http_client_get_run_fw_type() != OTA_TYPE_MCU_FW || atoi(buf) != 0x00)
-    	{
-            PRINTF_ATCMD("\r\n+NWOTADWSTART:%s\r\n", buf);
-        }
+        PRINTF_ATCMD("\r\n+NWOTADWSTART:%s\r\n", buf);
     } break;
 
     case 7: {   //ATC_EV_OTARENEW:
@@ -16439,11 +16331,7 @@ void atcmd_asynchony_event(int index, char *buf)
     } break;
 
     case 9: {    //ATC_EV_HTCSTATUS:
-        //Timmy
-    	if(ota_update_http_client_get_run_fw_type() != OTA_TYPE_MCU_FW)
-        {
-            PRINTF_ATCMD("\r\n+NWHTCSTATUS:%s\r\n", buf);
-        }
+        PRINTF_ATCMD("\r\n+NWHTCSTATUS:%s\r\n", buf);
     } break;
 #endif // (__SUPPORT_HTTP_CLIENT_FOR_ATCMD__)
     case 10: {    // +INIT:DONE,1

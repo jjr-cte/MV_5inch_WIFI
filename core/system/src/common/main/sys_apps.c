@@ -46,7 +46,6 @@
 #include "common_def.h"
 #include "mqtt_client.h"
 #include "lwip/dhcp.h"
-#include "atcmd.h"
 
 #ifdef __SUPPORT_ZERO_CONFIG__
 #include "zero_config.h"

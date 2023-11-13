@@ -33,7 +33,6 @@
 #ifndef	__SDK_VER_H__
 #define	__SDK_VER_H__
 
-//Timmy
 // SDK Version number
 #undef	SDK_MAJOR
 #undef	SDK_MINOR

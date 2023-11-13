@@ -54,10 +54,6 @@
 #include "ota_update_ble_fw.h"
 #include "user_nvram_cmd_table.h"
 
-//Timmy
-#include "common_uart.h"
-#include "user_define.h"
-
 #pragma GCC diagnostic ignored "-Wconversion"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 
@@ -69,8 +65,6 @@ static DA16_HTTP_CLIENT_REQUEST http_request;
 #if defined (__BLE_COMBO_REF__)
 extern unsigned int new_img_position;
 #endif // __BLE_COMBO_REF__
-
-extern int g_ota_mcu_uart_idx; //TImmy
 
 #define	CERT_MAX_LENGTH		1024 * 4
 #define	FLASH_WRITE_LENGTH	1024 * 4
@@ -314,9 +308,8 @@ void ota_update_httpc_cb_result_fn(void *arg,
 #if defined (__OTA_UPDATE_MCU_FW__)
     if (dw_info.update_type == OTA_TYPE_MCU_FW) {
         if (dw_info.download_status == OTA_SUCCESS)	{
-            //Timmy
             /* MCU FW header generation */
-            //ota_update_gen_mcu_header(dw_info.content_length);
+            ota_update_gen_mcu_header(dw_info.content_length);
         } else {
             /* In case of failure, the downloaded MCU FW is deleted */
             ota_update_erase_mcu_fw();
@@ -391,69 +384,44 @@ static err_t ota_update_httpc_cb_recv_fn(void *arg,
             }
         }
 #endif // (DISABLE_OTA_VER_CHK)
-        //Timmy
-        if(ota_update_http_client_get_run_fw_type() == OTA_TYPE_MCU_FW)
-        {
-            while (p != NULL) {
 
-                dw_info.received_length += p->len;
+        while (p != NULL) {
 
-            	puts_UART(g_ota_mcu_uart_idx, p->payload, p->len);
-
-                if ((dw_info.received_length > 0) && (dw_info.content_length > 0)) {
-                	progress = (dw_info.received_length * 100) / dw_info.content_length;
-
-                    OTA_INFO("\r<MCU_FW> Downloading... %d % (%d/%d Bytes)%s",
-                             progress,
-                             dw_info.received_length,
-                             dw_info.content_length, progress == 100 ? "\n" : " ");
-                } else {
-                    progress = 0;
-                }
-
-                p = p->next;
-            }
-        }
-        else
-        {
-            while (p != NULL) {
-
-                p_payload = (UCHAR *)p->payload;
-                p_len = p->len;
-                dw_info.received_length += p_len;
+            p_payload = (UCHAR *)p->payload;
+            p_len = p->len;
+            dw_info.received_length += p_len;
 #if defined (__BLE_COMBO_REF__)
-                if (dw_info.update_type == OTA_TYPE_BLE_FW) {
-                    ota_update_ble_crc_calcu(p_payload, p_len);
-                    offset_t = ota_update_ble_first_packet_offset();
-                    p_payload += offset_t;
-                    p_len -= offset_t;
-                    dw_info.write.total_length -= offset_t;
-                }
-#endif //(__BLE_COMBO_REF__)
-                status = ota_update_write_sflash(&dw_info.write, p_payload, p_len);
-                if (status != OTA_SUCCESS) {
-                    OTA_ERR("[%s] Failed to write data to sflash(0x%02x)\n", __func__, status);
-                    return ERR_VAL;
-                }
-
-                if ((dw_info.received_length > 0) && (dw_info.content_length > 0)) {
-                    //Timmy
-                    progress = (dw_info.received_length * 100) / dw_info.content_length;
-
-                    OTA_INFO("\r<RTOS> Downloading... %d % (%d/%d Bytes)%s",
-                             progress,
-                             dw_info.received_length,
-                             dw_info.content_length, progress == 100 ? "\n" : " ");
-                } else {
-                    progress = 0;
-                }
-
-                p = p->next;
-
-                /* Don't remove until lwIP optimize ... */
-                vTaskDelay( 10 / portTICK_PERIOD_MS );
+            if (dw_info.update_type == OTA_TYPE_BLE_FW) {
+                ota_update_ble_crc_calcu(p_payload, p_len);
+                offset_t = ota_update_ble_first_packet_offset();
+                p_payload += offset_t;
+                p_len -= offset_t;
+                dw_info.write.total_length -= offset_t;
             }
+#endif //(__BLE_COMBO_REF__)
+            status = ota_update_write_sflash(&dw_info.write, p_payload, p_len);
+            if (status != OTA_SUCCESS) {
+                OTA_ERR("[%s] Failed to write data to sflash(0x%02x)\n", __func__, status);
+                return ERR_VAL;
+            }
+
+            if ((dw_info.received_length > 0) && (dw_info.content_length > 0)) {
+                progress = (dw_info.received_length * 100) / dw_info.content_length;
+
+                OTA_INFO("\r   >> HTTP(s) Client Downloading... %d % (%d/%d Bytes)%s",
+                         progress,
+                         dw_info.received_length,
+                         dw_info.content_length, progress == 100 ? "\n" : " ");
+            } else {
+                progress = 0;
+            }
+
+            p = p->next;
+
+            /* Don't remove until lwIP optimize ... */
+            vTaskDelay( 10 / portTICK_PERIOD_MS );
         }
+
         if (dw_info.version_check == OTA_SUCCESS) {
             ota_update_set_download_progress(dw_info.update_type, progress);
         }

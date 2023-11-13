@@ -52,8 +52,6 @@
 #include "ota_update_ble_fw.h"
 #endif //(__BLE_COMBO_REF__)
 
-#include "user_define.h" //Timmy
-
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 
@@ -731,16 +729,7 @@ void ota_update_print_status(ota_update_type update_type, UINT status)
             OTA_INFO("\n- OTA Update : <%s> Download - Stop\n\n", ota_update_type_to_text(update_type));
         } else {
             ota_update_print_version(update_type);
-            //Timmy
-            //OTA_INFO("\n- OTA Update : <%s> Download - Success\n\n", ota_update_type_to_text(update_type));
-            if(ota_update_http_client_get_run_fw_type() == OTA_TYPE_MCU_FW)
-            {
-                myCommand("MCU FW TRANSFER DONE!!");
-            }
-            else if(ota_update_http_client_get_run_fw_type() == OTA_TYPE_RTOS)
-            {
-                myCommand("RTOS FW TRANSFER DONE!!");
-            }
+            OTA_INFO("\n- OTA Update : <%s> Download - Success\n\n", ota_update_type_to_text(update_type));
         }
     } else {
         OTA_ERR("- OTA Update : <%s> Download - Failed (0x%02x)\n", ota_update_type_to_text(update_type), status);
