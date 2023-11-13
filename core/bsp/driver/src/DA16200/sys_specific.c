@@ -226,6 +226,12 @@ INT32 __GPIO_RETAIN_HIGH_RECOVERY()
 
 /* DA16200 can be set GPIOA[11:4], GPIOC[8:6] */
 static UINT32 check_gpio_retention_available(UINT32 gpio_port, UINT32 gpio_num) {
+#if 1
+    DA16X_UNUSED_ARG(gpio_port);
+    DA16X_UNUSED_ARG(gpio_num);
+
+    return TRUE;
+#else
 	/* GPIOA, GPIOC can be set. */
 	if (gpio_port != GPIO_UNIT_A && gpio_port != GPIO_UNIT_C)
 		return FALSE;
@@ -239,6 +245,7 @@ static UINT32 check_gpio_retention_available(UINT32 gpio_port, UINT32 gpio_num) 
 		return FALSE;
 
 	return TRUE;
+#endif
 }
 
 INT32 _GPIO_RETAIN_HIGH(UINT32 gpio_port, UINT32 gpio_num)

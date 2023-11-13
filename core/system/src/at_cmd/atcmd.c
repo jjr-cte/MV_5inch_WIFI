@@ -405,15 +405,10 @@ void CTESocketCtrlFlow(void)
 			PRINTF("CSH: eCTE_Socket_AMD\r\n");
 
 			atq_result = 0;
-			//CSH: Set WIFI_Crl_USB_INT to control BT_MODE0 and BT_MODE1.
-			_GPIO_RETAIN_LOW(GPIO_UNIT_A, GPIO_PIN8);
-			//CSH: Control RT1172_RST#, set low pulse to triggering RT1170 hardware reset.
-			_GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN9);
-			vTaskDelay(100);
-			_GPIO_RETAIN_LOW(GPIO_UNIT_A, GPIO_PIN9);
-			vTaskDelay(100);
-			_GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN9);
-			vTaskDelay(100);
+
+            CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
+            CTE_OTA_NXP_RESET();
+
 			break;
 		case eCTE_Socket_ST:
 			data = "ST";

@@ -76,7 +76,7 @@
     // And it is defined below function :
     //    static void config_gpio_button(void) in ~/apps/da16200/get_started/src/user_main/system_start.c
     //
-    #define __SUPPORT_WPS_BTN__
+    #undef __SUPPORT_WPS_BTN__
 
     //
     // Enable/Disable Factory-Reset button on DA16X00 EVK : Default is GPIOA7
@@ -85,7 +85,7 @@
     // And it is defined below function :
     //    static void config_gpio_button(void) in ~/apps/da16200/get_started/src/user_main/system_start.c
     //
-    #define __SUPPORT_FACTORY_RESET_BTN__
+    #undef __SUPPORT_FACTORY_RESET_BTN__
 
     //
     // Enable/Disable BOR(Brown & Black out interrupt) Circuit
