@@ -86,10 +86,12 @@ static int atcmd_tcps_compare_ip_addr(struct sockaddr_in *a, struct sockaddr_in 
 #if defined(__SUPPORT_TCP_RECVDATA_HEX_MODE__)
 static int tcps_data_mode = 0;
 
+#if 0
 static int is_tcps_data_mode_hexstring(void)
 {
 	return tcps_data_mode == 1 ? 1 : 0;
 }
+#endif
 
 void set_tcps_data_mode(int mode)
 {
@@ -100,6 +102,7 @@ void set_tcps_data_mode(int mode)
 	tcps_data_mode = mode;
 }
 
+#if 0
 static void Convert_Str2HexStr(char* in, char* out, u32_t in_size)
 {
     u32_t cnt = 0;
@@ -112,6 +115,7 @@ static void Convert_Str2HexStr(char* in, char* out, u32_t in_size)
         i += 2;
     }
 }
+#endif
 #endif
 
 int atcmd_tcps_init_context(atcmd_tcps_context *ctx)
@@ -1490,6 +1494,11 @@ static void atcmd_tcps_cli_task_entry(void *param)
 	size_t act_hdr_len = 0;
 	size_t act_payload_len = 0;
 
+    DA16X_UNUSED_ARG(hdr);
+    DA16X_UNUSED_ARG(tot_len);
+    DA16X_UNUSED_ARG(act_hdr_len);
+    DA16X_UNUSED_ARG(act_payload_len);
+
 #if defined ( __SUPPORT_ATCMD_MULTI_SESSION__ )
 	const int cid = cli_ctx->cid;
 #else
@@ -1556,6 +1565,7 @@ static void atcmd_tcps_cli_task_entry(void *param)
 					(ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
 					(ntohs(cli_ctx->addr.sin_port)), act_payload_len);
 
+#if 0
 #if defined(__SUPPORT_TCP_RECVDATA_HEX_MODE__)
 			if (is_tcps_data_mode_hexstring()) {
 				char *hex_buf = ATCMD_MALLOC(ATCMD_TCPS_RECV_HDR_SIZE + (act_payload_len * 2));
@@ -1610,6 +1620,7 @@ static void atcmd_tcps_cli_task_entry(void *param)
 
 				PUTS_ATCMD((char *)hdr, tot_len);
 			}
+#endif
 		} else {
 			if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
 				ATCMD_TCPS_INFO("Disconnected(ip:%d.%d.%d.%d:%d/%d)\n",
