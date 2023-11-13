@@ -516,21 +516,21 @@
     //       - UM-WI-003_DA16200_DA16600_AT-Command_Rev_XvY.pdf
     //       - UM-WI-010_DA16200_DA16600_MQTT_Programmer_Guide_RevXvY.pdf
     //
-    #define __SUPPORT_MQTT__
+    #undef __SUPPORT_MQTT__
 
     //
     // Support SNTP Client feature
     //
     //  This feature enable SNTP client to get current time from the defined Internet time server.
     //
-    #define __SUPPORT_SNTP_CLIENT__
+    #undef __SUPPORT_SNTP_CLIENT__
 
     //
     // Support Websocket Client
     //
     //  This feature enable Websocket client to communicate with peer Websocket server.
     //
-    #define __SUPPORT_WEBSOCKET_CLIENT__
+    #undef __SUPPORT_WEBSOCKET_CLIENT__
 
     //
     // Support User-format to send HTTP-Client request ( header + body )
@@ -703,7 +703,7 @@
     //  Note) Refer to "DA1620_DA16600_FreeRTOS Getting Started Guide" document for more detailed information
     //       - UM-WI-056_DA16200_DA16600_FreeRTOS_Getting_Started_Guide_Rev_XvY.pdf
     //
-    #define __SUPPORT_IPERF__
+    #undef __SUPPORT_IPERF__
 
 
 //-------------------
@@ -746,7 +746,7 @@
     //
     // And function body is location in ~/apps/da16200/get_started/src/apps/hello_world.c
     //
-    #define __SUPPORT_HELLO_WORLD__
+    #undef __SUPPORT_HELLO_WORLD__
 
 
 ///////////////////////////////////////////////////////////////////////
@@ -778,7 +778,7 @@
         #define __DPM_WAKEUP_NOTICE_ADDITIONAL__            // Report DPM Wakeup RTC/ETC
         #undef  __SUPPORT_DPM_ABNORM_MSG__                  // Send message to MCU when wake-up from DPM Abnormal state
         #undef  __WF_CONN_RETRY_CNT_ABN_DPM__               // Wi-Fi reconn retry count at dpm abnormal
-        #define __SUPPORT_DPM_EXT_WU_MON__                  // DPM monitor for External Wakeup
+        #undef  __SUPPORT_DPM_EXT_WU_MON__                  // DPM monitor for External Wakeup
             #if defined ( __SUPPORT_DPM_EXT_WU_MON__ )
                 #undef  __SUPPORT_UC_WU_MON__               // DPM monitor for UC Wakeup
             #endif // __SUPPORT_DPM_EXT_WU_MON__
