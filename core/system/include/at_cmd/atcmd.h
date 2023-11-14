@@ -1064,21 +1064,6 @@ typedef enum _atcmd_provision_stat {
    
 } atcmd_provision_stat;
 
-enum {
-	eCTE_Socket_None = 0,
-	eCTE_Socket_MD,
-	eCTE_Socket_AMD,
-	eCTE_Socket_ST,
-	eCTE_Socket_AST,
-	eCTE_Socket_RT,
-	eCTE_Socket_ART,
-	eCTE_Socket_FH,
-	eCTE_Socket_AFH,
-	eCTE_Socket_NAK,
-	eCTE_Socket_Close,
-	eCTE_Socket_WattingAck,
-};
-
 /**
  ****************************************************************************************
  * @brief Provisioning start AT Commands
@@ -1175,15 +1160,6 @@ extern void printf_with_run_time(char *string);
 extern atcmd_error_code command_parser(char *line);
 extern atcmd_error_code user_atcmd_parser(char *line);
 extern atcmd_error_code esc_cmd_parser(char *line);
-
-//CSH: Create CTE control function
-extern void SetCTEStatus(UINT8 status);
-extern void SetCTESocketConnection(void);
-extern void SetCTESocketDisconnection(void);
-extern void CTESendDataToSocketServer(INT8 *data);
-extern void CTEGetSocketServerData(UINT8 *payload, INT32 payload_len);
-extern void CTESocketCtrlFlow(void);
-//CSH: End of create CTE control function
 
 /**************************************************************************
  * Global External Variables
