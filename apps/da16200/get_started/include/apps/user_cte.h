@@ -2,6 +2,8 @@
 
 #include "common_def.h"
 
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
 #define ENABLE_CTE_DBG
 
 #ifdef ENABLE_CTE_DBG
@@ -31,6 +33,7 @@ typedef enum {
     pConfigureMemoryCode,
     pGetPropertyCode,
     pWriteMemoryCode,
+    pFWCONFIG,
 	pFWPACKAGE,
     UNKNOWN
 } SCRIPT_ITEMS;
