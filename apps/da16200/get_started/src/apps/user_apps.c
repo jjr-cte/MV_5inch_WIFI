@@ -185,16 +185,24 @@ static void user_wifi_conn(void *arg)
                 }
             }
 
+#ifdef CTE_SOCKET_SERVER_ON_WIFI
+            /* no need to wait */
+#else
             CTE_DBG("wait for 5000ms\n");
             //CSH: If end device link to DA16200(AP Mode), auto create socket link to end device(server).
             vTaskDelay(pdMS_TO_TICKS(5000));
+#endif
 
             SetCTESocketConnection();
 
+#ifdef CTE_SOCKET_SERVER_ON_WIFI
+            /* no need */
+#else
 #if 0
             NXP_OTA_UART_WRITE("+" ATCMD_OTAOK_CMD "\r\n");
 #else
             CTEStatusSet(eCTE_Socket_MD);
+#endif
 #endif
         }
 

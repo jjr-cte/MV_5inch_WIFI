@@ -26,6 +26,9 @@
 #undef CTE_DBG_TIME
 #endif
 
+/* socket server created on wifi module */
+#define CTE_SOCKET_SERVER_ON_WIFI
+
 #ifdef CTE_DBG_NXP_NO_WRITE
 extern uint32_t         is_no_write;
 #endif
@@ -243,7 +246,7 @@ extern void SetCTESocketConnection(void);
 extern void SetCTESocketDisconnection(void);
 extern void CTESendDataToSocketServer(const void *data, const size_t data_len);
 extern void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload);
-extern void CTESocketCtrlFlow(cte_ota_ctx_t *ctx);
+extern int CTESocketCtrlFlow(cte_ota_ctx_t *ctx);
 
 extern void generate_crc_table(void);
 

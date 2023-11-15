@@ -290,6 +290,45 @@ cte_status_t CTEStatusGet(void)
 
 void SetCTESocketConnection(void)
 {
+#ifdef CTE_SOCKET_SERVER_ON_WIFI
+    const uint32_t      server_port = 2300;
+    atcmd_sess_context  *ctx = NULL;
+
+    CTE_DBG("%s()\n", __func__);
+
+    ctx = atcmd_transport_create_context(ATCMD_SESS_TCP_SERVER);
+
+    if (!ctx) {
+        ATCMD_DBG("[%s:%d]Failed to create tcp server context\n", __func__, __LINE__);
+        return ;
+    }
+
+    int                 ret = 0;
+
+    ret = atcmd_network_connect_tcps(ctx, server_port, 1);
+
+    if (0 == ret) {
+        const atcmd_tcps_config     *conf = ctx->ctx.tcps->conf;
+
+        DA16X_UNUSED_ARG(conf);
+
+        CTE_DBG("socket server created on %d.%d.%d.%d:%d\n",
+                    (ntohl(conf->local_addr.sin_addr.s_addr) >> 24) & 0xFF,
+                    (ntohl(conf->local_addr.sin_addr.s_addr) >> 16) & 0xFF,
+                    (ntohl(conf->local_addr.sin_addr.s_addr) >>  8) & 0xFF,
+                    (ntohl(conf->local_addr.sin_addr.s_addr)      ) & 0xFF,
+                    (ntohs(conf->local_addr.sin_port)));
+        return ;
+    }
+    else {
+        CTE_DBG("socket server connection failed\n");
+
+        if (ctx) {
+            atcmd_transport_delete_context(ctx->cid);
+            ctx = NULL;
+        }
+    }
+#else
     const char          *ip_addr = "10.0.0.2";
     const uint32_t      server_port = 1234;
     const uint32_t      client_port = 2300;
@@ -320,6 +359,7 @@ void SetCTESocketConnection(void)
             ctx = NULL;
         }
     }
+#endif
 }
 
 void SetCTESocketDisconnection(void)
@@ -336,6 +376,34 @@ void CTESendDataToSocketServer(const void *data, const size_t data_len)
     CTE_DBG_PRINT_TS();
     CTE_DBG("%s()\n", __func__);
 
+#ifdef CTE_SOCKET_SERVER_ON_WIFI
+    for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i++)
+    {
+        atcmd_sess_context      *ctx = atcmd_transport_find_context(i);
+
+        if (ctx != NULL)
+        {
+            atcmd_tcps_cli_context  *cli_ctx = ctx->ctx.tcps->cli_ctx;
+
+            if ((ctx->type == ATCMD_SESS_TCP_SERVER) && (cli_ctx->state == ATCMD_TCPS_CLI_STATE_CONNECTED))
+            {
+                int     ret = send(cli_ctx->socket, data, data_len, 0);
+
+                if (ret <= 0) {
+                    ATCMD_DBG("Failed to send tcp data to tcp client(%d,%d.%d.%d.%d:%d)\n", ret,
+                            (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
+                            (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 16) & 0xFF,
+                            (ntohl(cli_ctx->addr.sin_addr.s_addr) >>  8) & 0xFF,
+                            (ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
+                            (ntohs(cli_ctx->addr.sin_port)));
+                }
+                else {
+                    memory_dump(data, data_len);
+                }
+            }
+        }
+    }
+#else
     //CSH: It's <ESC>S1 CMD, send data to server, copy from Timmy sendInformationToMessageServer function.
     for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i++)
     {
@@ -366,6 +434,7 @@ void CTESendDataToSocketServer(const void *data, const size_t data_len)
             }
         }
     }
+#endif
 }
 
 void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
@@ -528,7 +597,7 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
  * under AT-CMD-TCPC task, priority OS_TASK_PRIORITY_USER + 7
  * call path : atcmd_tcpc_task_entry() -> CTESocketCtrlFlow()
  */
-void CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
+int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 {
     static uint32_t         timeout = 0;
     static cte_status_t     StatusPrev = eCTE_Socket_None;
@@ -672,11 +741,9 @@ void CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             StatusPrev = eCTE_Socket_NAK;
             break;
         case eCTE_Socket_Close:
-            SetCTESocketDisconnection();
-
             CTEStatusSet(eCTE_Socket_None);
             StatusPrev = eCTE_Socket_Close;
-            break;
+            return -1;
         case eCTE_Socket_WaitingAck: {
             vTaskDelay(pdMS_TO_TICKS(100));
 
@@ -753,6 +820,8 @@ void CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
         default:
             break;
 	}
+
+    return 0;
 }
 //CSH: End of create CTE control function
 
