@@ -50,6 +50,34 @@ void CTE_OTA_NXP_RESET(void)
     vTaskDelay(pdMS_TO_TICKS(100));
 }
 
+int atcmd_wifi_ctrl(int argc, char *argv[])
+{
+    int     err_code = AT_CMD_ERR_CMD_OK;
+
+    CTE_DBG("%s()\n", __func__);
+
+    if (argc != 2) {
+        err_code = AT_CMD_ERR_UNKNOWN;
+    }
+    else {
+        CTE_DBG("argv[1] = %s\n", argv[1]);
+
+        if (0 == strcasecmp(argv[1], "on")) {
+            /* RF ON */
+            wifi_cs_rf_cntrl(0);
+        }
+        else if (0 == strcasecmp(argv[1], "off")) {
+            /* RF OFF */
+            wifi_cs_rf_cntrl(1);
+        }
+        else {
+            err_code = AT_CMD_ERR_UNKNOWN;
+        }
+    }
+
+    return err_code;
+}
+
 //Timmy
 static int p_script_name = 0;
 

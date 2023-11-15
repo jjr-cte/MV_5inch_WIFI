@@ -21,6 +21,8 @@ extern void CTE_OTA_NXP_INIT(void);
 extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
 extern void CTE_OTA_NXP_RESET(void);
 
+extern int atcmd_wifi_ctrl(int argc, char *argv[]);
+
 typedef enum {
 	pGetProperty01_1 = 1,
     pFLASHLOADER,
