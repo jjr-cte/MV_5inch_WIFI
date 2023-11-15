@@ -165,7 +165,12 @@ static uint16_t calc_crc16_byte(const uint16_t crc, const uint8_t byte)
 
 void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n)
 {
+#ifdef CTE_DBG_NXP_NO_WRITE
+    if ( ! is_no_write )
+        puts_UART(g_ota_mcu_uart_idx, (char *)(x), n);
+#else
     puts_UART(g_ota_mcu_uart_idx, (char *)(x), n);
+#endif
 
     CTE_DBG_PRINT_TS();
     CTE_DBG("-> NXP\n");
@@ -569,6 +574,10 @@ void nxp_load_fw(cte_ota_script_t script_name)
 
             CTE_DBG("firmware, segment 0\n");
 
+#ifdef CTE_DBG_NXP_NO_WRITE
+            is_no_write = 1;
+#endif
+
             nxp_ota_msg_data_payload(ptr, ctx->cur_size);
 
             vPortFree(ptr);
@@ -876,6 +885,10 @@ UINT nxpcmd_parser(char *in_buf)
                 }
                 else {
                     CTE_DBG("firmware finished\n");
+
+#ifdef CTE_DBG_NXP_NO_WRITE
+                    is_no_write = 0;
+#endif
                 }
 #elif defined(CTE_OTA_FW_CANONLY_RAW)
                 static uint32_t     idx = 0;

@@ -19,10 +19,15 @@
 #define ENABLE_CTE_DBG
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
+#undef CTE_DBG_NXP_NO_WRITE
 
 #ifndef ENABLE_CTE_DBG
 #undef CTE_DBG_DUMP_PARTIAL
 #undef CTE_DBG_TIME
+#endif
+
+#ifdef CTE_DBG_NXP_NO_WRITE
+extern uint32_t         is_no_write;
 #endif
 
 #ifdef ENABLE_CTE_DBG

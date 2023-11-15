@@ -1311,6 +1311,11 @@ static void atcmd_mqtt_msg_qos0_dpm_rsp_handle(void)
 #endif // __SUPPORT_MQTT__
 
 #if defined ( __ATCMD_IF_UART1__ ) || defined ( __ATCMD_IF_UART2__ )
+
+#ifdef CTE_DBG_NXP_NO_WRITE
+uint32_t        is_no_write = 0;
+#endif
+
 static void monitor_atcmd(void)
 {
     atcmd_error_code    major_err_code = AT_CMD_ERR_CMD_OK;
@@ -1389,7 +1394,17 @@ static void monitor_atcmd(void)
     while (1) {
         memset(atcmd_uart_mon_buf, 0, USER_ATCMD_BUF);
 
+#ifdef CTE_DBG_NXP_NO_WRITE
+        if (is_no_write) {
+            atcmd_uart_mon_buf[0] = 0x5a;
+            atcmd_uart_mon_buf[1] = 0xa1;
+            major_err_code = AT_CMD_ERR_CMD_OK;
+        }
+        else
+            major_err_code = gets_atcmd_uart(atcmd_uart_mon_buf);
+#else
         major_err_code = gets_atcmd_uart(atcmd_uart_mon_buf);
+#endif
 
         if (major_err_code == AT_CMD_ERR_CMD_OK) {
 
