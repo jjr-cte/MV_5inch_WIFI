@@ -12,6 +12,37 @@
 #include "user_cte.h"
 #include "nxp_fw_database.h" //Timmy
 
+#ifdef ENABLE_CTE_DBG
+
+#define ENUM_ENTRY(x)   #x
+
+const char *cte_ota_script_str[] = {
+    SCRIPT_ENUM,
+    "invalid"
+};
+
+#undef ENUM_ENTRY
+
+#define ENUM_ENTRY(x)   "eCTE_Socket_" #x
+
+const char *cte_status_str[] = {
+    STATUS_ENUM,
+    "invalid"
+};
+
+#undef ENUM_ENTRY
+
+#define ENUM_ENTRY(x)   "OTA_PKT_TYPE_" #x
+
+const char *ota_packet_type_str[] = {
+    PTYPE_ENUM,
+    "invalid"
+};
+
+#undef ENUM_ENTRY
+
+#endif /* ENABLE_CTE_DBG */
+
 SemaphoreHandle_t   CTE_OTA_NXP_READY_mutex = NULL;
 uint32_t            CTE_OTA_NXP_READY = FALSE;
 
@@ -509,7 +540,7 @@ void nxp_script_select(cte_ota_script_t script_name)
 {
     const uint8_t NXP_Ping[] = {0x5a, 0xa6};
 
-    CTE_DBG("%s(), script=%d\n", __func__, script_name);
+    CTE_DBG("%s(), script=%s\n", __func__, cte_ota_script_str[script_name]);
 
     p_script_name = script_name;
     NXP_OTA_UART_WRITE(NXP_Ping);
@@ -558,7 +589,7 @@ void nxp_load_fw(cte_ota_script_t script_name)
             break;
         default :
             CTE_DBG_XXX();
-            CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, script_name);
+            CTE_DBG("%s():%d, script=%s\n", __func__, __LINE__, cte_ota_script_str[script_name]);
     }
 }
 
@@ -727,7 +758,7 @@ UINT nxpcmd_parser(char *in_buf)
                 break;
             default :
                 CTE_DBG_XXX();
-                CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, p_script_name);
+                CTE_DBG("%s():%d, script=%s\n", __func__, __LINE__, cte_ota_script_str[p_script_name]);
 	    }
 
         configASSERT(payload_length <= sizeof(payload));
@@ -756,7 +787,7 @@ UINT nxpcmd_parser(char *in_buf)
                 break;
             default :
                 CTE_DBG_XXX();
-                CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, p_script_name);
+                CTE_DBG("%s():%d, script=%s\n", __func__, __LINE__, cte_ota_script_str[p_script_name]);
         }
     }
     else if (memcmp(in_buf, NXP_Ack, sizeof(NXP_Ack)) == 0)
@@ -892,7 +923,7 @@ UINT nxpcmd_parser(char *in_buf)
 
             default :
                 CTE_DBG_XXX();
-                CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, p_script_name);
+                CTE_DBG("%s():%d, script=%s\n", __func__, __LINE__, cte_ota_script_str[p_script_name]);
         }
     }
     else if (memcmp(in_buf, NXP_Nak, sizeof(NXP_Nak)) == 0) {

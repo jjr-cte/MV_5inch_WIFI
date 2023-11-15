@@ -278,7 +278,7 @@ static int atcmd_network_terminate_session(const int cid);
 //CSH: Create CTE control function
 void CTEStatusSet(const cte_status_t status)
 {
-    CTE_DBG("%s(), %d -> %d\n", __func__, CTEData.UpdateStatus, status);
+    CTE_DBG("%s(), %s -> %s\n", __func__, cte_status_str[CTEData.UpdateStatus], cte_status_str[status]);
 
     CTEData.UpdateStatus = status;
 }
@@ -374,7 +374,7 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
     const cte_status_t          current_status = CTEStatusGet();
 
     if (current_status != eCTE_Socket_WaitingAck) {
-        CTE_DBG("WRONG STATE !! %s:%d, state = %d\n", __func__, __LINE__, current_status);
+        CTE_DBG("WRONG STATE !! %s:%d, state = %s\n", __func__, __LINE__, cte_status_str[current_status]);
         CTEStatusSet(eCTE_Socket_RST);
         return;
     }
@@ -387,7 +387,7 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
     }
 
     CTE_DBG_PRINT_TS();
-    CTE_DBG("%s(), p_type = %d\n", __func__, p_type);
+    CTE_DBG("%s(), p_type = %s\n", __func__, ota_packet_type_str[p_type]);
 
     switch (p_type) {
         case OTA_PKT_TYPE_AMD : {
@@ -534,7 +534,7 @@ void CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
     static cte_status_t     StatusPrev = eCTE_Socket_None;
 
     CTE_DBG_PRINT_TS();
-    CTE_DBG("%s(), status = %d\n", __func__, CTEStatusGet());
+    CTE_DBG("%s(), status = %s\n", __func__, cte_status_str[CTEStatusGet()]);
 
     switch(CTEStatusGet())
 	{

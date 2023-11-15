@@ -62,42 +62,62 @@ extern TaskHandle_t         CTE_OTA_TaskHandler;
 extern int atcmd_otaok(int argc, char *argv[]);
 extern int atcmd_wifi_ctrl(int argc, char *argv[]);
 
+#define SCRIPT_ENUM                         \
+    ENUM_ENTRY(pNone),                      \
+    ENUM_ENTRY(pGetProperty01_1),           \
+    ENUM_ENTRY(pFLASHLOADER),               \
+    ENUM_ENTRY(pGetProperty01_2),           \
+    ENUM_ENTRY(pFillMemory1),               \
+    ENUM_ENTRY(pFillMemory2),               \
+    ENUM_ENTRY(pFillMemory3),               \
+    ENUM_ENTRY(pConfigureMemory_2),         \
+    ENUM_ENTRY(pFlashEraseRegionCode1000),  \
+    ENUM_ENTRY(pConfigureMemoryCode),       \
+    ENUM_ENTRY(pGetPropertyCode),           \
+    ENUM_ENTRY(pWriteMemoryCode),           \
+    ENUM_ENTRY(pFWCONFIG),                  \
+    ENUM_ENTRY(pFWPACKAGE),                 \
+    ENUM_ENTRY(UNKNOWN)
+
+#define ENUM_ENTRY(x)   x
+
 typedef enum _cte_ota_script_t {
-	pNone,
-	pGetProperty01_1,
-    pFLASHLOADER,
-	pGetProperty01_2,
-	pFillMemory1,
-	pFillMemory2,
-	pFillMemory3,
-    pConfigureMemory_2,
-    pFlashEraseRegionCode1000,
-    pConfigureMemoryCode,
-    pGetPropertyCode,
-    pWriteMemoryCode,
-    pFWCONFIG,
-	pFWPACKAGE,
-    UNKNOWN
+    SCRIPT_ENUM,
+    NUM_SCRIPTS
 } cte_ota_script_t;
+
+#undef ENUM_ENTRY
+
+extern const char *cte_ota_script_str[];
 
 extern void nxp_script_select(cte_ota_script_t script_name);
 
-enum {
-	eCTE_Socket_None = 0,
-	eCTE_Socket_MD,
-	eCTE_Socket_AMD,
-	eCTE_Socket_ST,
-	eCTE_Socket_AST,
-	eCTE_Socket_RT,
-	eCTE_Socket_ART,
-	eCTE_Socket_RST,
-	eCTE_Socket_ARST,
-	eCTE_Socket_FH,
-	eCTE_Socket_AFH,
-	eCTE_Socket_NAK,
-	eCTE_Socket_Close,
-	eCTE_Socket_WaitingAck,
-};
+#define STATUS_ENUM         \
+    ENUM_ENTRY(None),       \
+    ENUM_ENTRY(MD),         \
+    ENUM_ENTRY(AMD),        \
+    ENUM_ENTRY(ST),         \
+    ENUM_ENTRY(AST),        \
+    ENUM_ENTRY(RT),         \
+    ENUM_ENTRY(ART),        \
+    ENUM_ENTRY(RST),        \
+    ENUM_ENTRY(ARST),       \
+    ENUM_ENTRY(FH),         \
+    ENUM_ENTRY(AFH),        \
+    ENUM_ENTRY(NAK),        \
+    ENUM_ENTRY(Close),      \
+    ENUM_ENTRY(WaitingAck)
+
+#define ENUM_ENTRY(x)   eCTE_Socket_ ## x
+
+typedef enum _cte_status_t {
+    STATUS_ENUM,
+    NUM_STATUS
+} cte_status_t;
+
+#undef ENUM_ENTRY
+
+extern const char *cte_status_str[];
 
 #define NXP_OTA_UART_WRITE(x)   NXP_OTA_UART_WRITE_N(x, sizeof(x))
 extern void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n);
@@ -115,18 +135,28 @@ extern void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n);
 #define CTE_OTA_TIMEOUT_RT      5       // 500 ms
 #define CTE_OTA_TIMEOUT_RST     5       // 500 ms
 
+#define PTYPE_ENUM      \
+    ENUM_ENTRY(MD),     \
+    ENUM_ENTRY(AMD),    \
+    ENUM_ENTRY(ST),     \
+    ENUM_ENTRY(AST),    \
+    ENUM_ENTRY(RT),     \
+    ENUM_ENTRY(ART),    \
+    ENUM_ENTRY(RST),    \
+    ENUM_ENTRY(ARST),   \
+    ENUM_ENTRY(FH),     \
+    ENUM_ENTRY(AFH)
+
+#define ENUM_ENTRY(x)   OTA_PKT_TYPE_ ## x
+
 typedef enum _ota_packet_type_t {
-    OTA_PKT_TYPE_MD,
-    OTA_PKT_TYPE_AMD,
-    OTA_PKT_TYPE_ST,
-    OTA_PKT_TYPE_AST,
-    OTA_PKT_TYPE_RT,
-    OTA_PKT_TYPE_ART,
-    OTA_PKT_TYPE_RST,
-    OTA_PKT_TYPE_ARST,
-    OTA_PKT_TYPE_FH,
-    OTA_PKT_TYPE_AFH
+    PTYPE_ENUM,
+    NUM_PTYPE
 } ota_packet_type_t;
+
+#undef ENUM_ENTRY
+
+extern const char *ota_packet_type_str[];
 
 /*
  * OTA_PKT_TYPE_MD
