@@ -1119,6 +1119,8 @@ static void monitor_atcmd(void)
     /* For User AT-CMD help */
     reg_user_atcmd_help_cb();
 
+    generate_crc_table();
+
     while (1) {
         memset(atcmd_uart_mon_buf, 0, USER_ATCMD_BUF);
 
