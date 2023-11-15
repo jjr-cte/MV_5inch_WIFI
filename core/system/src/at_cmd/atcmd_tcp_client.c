@@ -731,6 +731,14 @@ static void atcmd_tcpc_task_entry(void *param)
 	
 	ATCMD_TCPC_INFO("Ready to receive packet(cid:%d)\n", cid);
 
+
+	cte_ota_ctx_t   *cte_ota_ctx = cte_ota_get_context();
+	memset(cte_ota_ctx, 0xFF, sizeof(*cte_ota_ctx));
+
+	if (NULL == CTE_OTA_TaskHandler) {
+	    CTE_OTA_TaskHandler = xTaskGetCurrentTaskHandle();
+	}
+
 	while (ctx->state == ATCMD_TCPC_STATE_CONNECTED) {
 		memset(ctx->buffer, 0x00, conf->rx_buflen);
 
@@ -748,12 +756,14 @@ static void atcmd_tcpc_task_entry(void *param)
 
 		//CSH: Get data from socket server.
 		ret = recv(ctx->socket, payload, payload_len, 0);
+
 		//CSH: Get data and pass to CTE control flow.
 		if (ret > 0) {
-			CTEGetSocketServerData(payload, ret);
+            CTEGetSocketServerData(cte_ota_ctx, payload);
 		}
+
 		//CSH: Call CTE main flow.
-		CTESocketCtrlFlow();
+		CTESocketCtrlFlow(cte_ota_ctx);
 
 		dpm_app_sleep_ready_clear((char *)dpm_name);
 

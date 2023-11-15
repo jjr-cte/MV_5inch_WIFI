@@ -2,7 +2,19 @@
 
 #include "common_def.h"
 
+#include "mbedtls/md5.h"
+
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
+/* for nxp_fw_database.h */
+/* 要用的就 define 為 1, 不用的就 undef 掉 */
+#define CTE_OTA_FW_REAL          1
+#undef CTE_OTA_FW_CANONLY_RAW
+#undef CTE_OTA_FW_CANONLY_W_HEADER
+
+#if defined(CTE_OTA_FW_REAL) + defined(CTE_OTA_FW_CANONLY_RAW) + defined(CTE_OTA_FW_CANONLY_W_HEADER) != 1
+#error
+#endif
 
 #define ENABLE_CTE_DBG
 #define CTE_DBG_DUMP_PARTIAL
@@ -16,9 +28,13 @@
 #ifdef ENABLE_CTE_DBG
 #define CTE_DBG                 PRINTF
 #define memory_dump(p, l)       hex_dump((UCHAR *) p, (UINT) l)
+#define md5dump(x)              memory_dump(x, 16)
+#define CTE_DBG_XXX()           CTE_DBG(RED_COLOR "XXX\n" CLEAR_COLOR)
 #else
 #define CTE_DBG(...)            do { } while (0)
 #define memory_dump(p, l)       do { } while (0)
+#define md5dump(x)              do { } while (0)
+#define CTE_DBG_XXX(...)        do { } while (0)
 #endif
 
 #ifdef CTE_DBG_TIME
@@ -32,14 +48,23 @@ typedef enum _CTE_OTA_NXP_BOOTMODE_T {
     NXP_BOOT_OTA
 } CTE_OTA_NXP_BOOTMODE_T;
 
+extern SemaphoreHandle_t    CTE_OTA_NXP_READY_mutex;
+extern uint32_t             CTE_OTA_NXP_READY;
+
+#define ATCMD_OTAOK_CMD     "OTAOK"
+
 extern void CTE_OTA_NXP_INIT(void);
 extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
 extern void CTE_OTA_NXP_RESET(void);
 
+extern TaskHandle_t         CTE_OTA_TaskHandler;
+
+extern int atcmd_otaok(int argc, char *argv[]);
 extern int atcmd_wifi_ctrl(int argc, char *argv[]);
 
-typedef enum {
-	pGetProperty01_1 = 1,
+typedef enum _cte_ota_script_t {
+	pNone,
+	pGetProperty01_1,
     pFLASHLOADER,
 	pGetProperty01_2,
 	pFillMemory1,
@@ -53,9 +78,9 @@ typedef enum {
     pFWCONFIG,
 	pFWPACKAGE,
     UNKNOWN
-} SCRIPT_ITEMS;
+} cte_ota_script_t;
 
-extern void nxp_script_select(int script_name);
+extern void nxp_script_select(cte_ota_script_t script_name);
 
 enum {
 	eCTE_Socket_None = 0,
@@ -65,11 +90,13 @@ enum {
 	eCTE_Socket_AST,
 	eCTE_Socket_RT,
 	eCTE_Socket_ART,
+	eCTE_Socket_RST,
+	eCTE_Socket_ARST,
 	eCTE_Socket_FH,
 	eCTE_Socket_AFH,
 	eCTE_Socket_NAK,
 	eCTE_Socket_Close,
-	eCTE_Socket_WattingAck,
+	eCTE_Socket_WaitingAck,
 };
 
 #define NXP_OTA_UART_WRITE(x)   NXP_OTA_UART_WRITE_N(x, sizeof(x))
@@ -83,12 +110,105 @@ extern void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n);
         payload[idx++] = (uint8_t) ((data >> 24) & 0xFF);   \
     } while (0)
 
-extern void SetCTEStatus(UINT8 status);
+#define CTE_OTA_RETX_MAX        3
+#define CTE_OTA_TIMEOUT_ST      30      // 3000 ms
+#define CTE_OTA_TIMEOUT_RT      5       // 500 ms
+#define CTE_OTA_TIMEOUT_RST     5       // 500 ms
+
+typedef enum _ota_packet_type_t {
+    OTA_PKT_TYPE_MD,
+    OTA_PKT_TYPE_AMD,
+    OTA_PKT_TYPE_ST,
+    OTA_PKT_TYPE_AST,
+    OTA_PKT_TYPE_RT,
+    OTA_PKT_TYPE_ART,
+    OTA_PKT_TYPE_RST,
+    OTA_PKT_TYPE_ARST,
+    OTA_PKT_TYPE_FH,
+    OTA_PKT_TYPE_AFH
+} ota_packet_type_t;
+
+/*
+ * OTA_PKT_TYPE_MD
+ * OTA_PKT_TYPE_ST
+ * OTA_PKT_TYPE_AST
+ * OTA_PKT_TYPE_RST
+ * OTA_PKT_TYPE_ARST
+ * OTA_PKT_TYPE_FH
+ */
+typedef struct _ota_packet_t {
+    uint8_t     type;
+} ota_packet_t;
+
+typedef ota_packet_t        ota_packet_md_t;
+typedef ota_packet_t        ota_packet_st_t;
+typedef ota_packet_t        ota_packet_ast_t;
+typedef ota_packet_t        ota_packet_rst_t;
+typedef ota_packet_t        ota_packet_arst_t;
+typedef ota_packet_t        ota_packet_fh_t;
+
+/*
+ * OTA_PKT_TYPE_AMD
+ */
+typedef struct _ota_packet_amd_t {
+    uint8_t     type;
+    uint8_t     _pad[3];
+    uint32_t    total_size;
+    uint32_t    total_packet;
+} ota_packet_amd_t;
+
+/*
+ * OTA_PKT_TYPE_RT
+ */
+typedef struct _ota_packet_rt_t {
+    uint8_t     type;
+    uint8_t     _pad[3];
+    uint32_t    packet_number;
+} ota_packet_rt_t;
+
+/*
+ * OTA_PKT_TYPE_ART
+ */
+typedef struct _ota_packet_art_t {
+    uint8_t     type;
+    uint8_t     checksum;
+    uint8_t     _pad[2];
+    uint32_t    packet_number;
+    uint32_t    packet_size;
+    uint8_t     payload[512];
+} ota_packet_art_t;
+
+/*
+ * OTA_PKT_TYPE_AFH
+ */
+typedef struct _ota_packet_afh_t {
+    uint8_t     type;
+    uint8_t     _pad[3];
+    uint8_t     md5sum[16];
+} ota_packet_afh_t;
+
+//Timmy
+extern int g_ota_mcu_uart_idx;
+
+typedef struct _cte_ota_ctx_t {
+    uint32_t    total_size;
+    uint32_t    total_packet;
+    uint32_t    cur_packet;
+    uint16_t    cur_size;
+    uint8_t     retx_cnt;
+    QueueHandle_t           q_p;
+    mbedtls_md5_context     md5_ctx;
+} cte_ota_ctx_t;
+
+extern cte_ota_ctx_t* cte_ota_get_context(void);
+
+extern void CTEStatusSet(const cte_status_t status);
+extern cte_status_t CTEStatusGet(void);
 extern void SetCTESocketConnection(void);
 extern void SetCTESocketDisconnection(void);
-extern void CTESendDataToSocketServer(INT8 *data);
-extern void CTEGetSocketServerData(UINT8 *payload, INT32 payload_len);
-extern void CTESocketCtrlFlow(void);
+extern void CTESendDataToSocketServer(const void *data, const size_t data_len);
+extern void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload);
+extern void CTESocketCtrlFlow(cte_ota_ctx_t *ctx);
 
 extern void generate_crc_table(void);
 

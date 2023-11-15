@@ -53,6 +53,8 @@
 #include "app_provision.h"
 #endif // __SUPPORT_REMOVE_MAC_NAME__
 
+#include "user_cte.h"
+
 /// Hexa Dump API //////////////////////////////////////////////////////////
 /*
 direction: 0: UART0, 1: ATCMD_INTERFACE
@@ -1265,6 +1267,13 @@ static void wifi_disconn_cb(short reason_code)
 	}
 
 	xSemaphoreGive(wifi_conn_notify_mutex);
+
+    if (CTE_OTA_NXP_READY_mutex) {
+        vSemaphoreDelete(CTE_OTA_NXP_READY_mutex);
+        CTE_OTA_NXP_READY_mutex = NULL;
+
+        CTE_DBG("CTE_OTA_NXP_READY_mutex destroyed, 0x%08x\r\n", CTE_OTA_NXP_READY_mutex);
+    }
 }
 
 static void ap_sta_disconnected_cb(const unsigned char mac[6])

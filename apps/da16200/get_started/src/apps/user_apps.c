@@ -36,8 +36,8 @@
 #include "da16x_system.h"
 #include "application.h"
 #include "common_def.h"
-//CSH: Call CTE function at atcmd.c
-#include "atcmd.h"
+
+#include "user_cte.h"
 
 /******************************************************************************
  * External global functions
@@ -144,8 +144,6 @@ static void user_wifi_conn(void *arg)
 {
     DA16X_UNUSED_ARG(arg);
 
-    ap_wifi_conn_flag = TRUE;
-
     while (TRUE) {
         if (wifi_conn_flag == TRUE) {
             /*
@@ -176,11 +174,36 @@ static void user_wifi_conn(void *arg)
             ap_wifi_conn_flag = FALSE;
             xSemaphoreGive(wifi_conn_notify_mutex);
 
+            if (NULL == CTE_OTA_NXP_READY_mutex) {
+                CTE_OTA_NXP_READY_mutex = xSemaphoreCreateMutex();
+
+                CTE_DBG("CTE_OTA_NXP_READY_mutex created, 0x%08x\r\n", CTE_OTA_NXP_READY_mutex);
+
+                if (NULL == CTE_OTA_NXP_READY_mutex) {
+                    PRINTF("\n\n>>> Failed to create CTE_OTA_NXP_READY_mutex mutex !!!\n\n");
+                    return;
+                }
+            }
+
+            CTE_DBG("wait for 5000ms\n");
             //CSH: If end device link to DA16200(AP Mode), auto create socket link to end device(server).
-            vTaskDelay(100);
+            vTaskDelay(pdMS_TO_TICKS(5000));
+
             SetCTESocketConnection();
-//            vTaskDelay(500);
-            SetCTEStatus(eCTE_Socket_MD);
+
+#if 0
+            NXP_OTA_UART_WRITE("+" ATCMD_OTAOK_CMD "\r\n");
+#else
+            CTEStatusSet(eCTE_Socket_MD);
+#endif
+        }
+
+        if (CTE_OTA_NXP_READY) {
+            CTEStatusSet(eCTE_Socket_MD);
+
+            xSemaphoreTake(CTE_OTA_NXP_READY_mutex, 300);
+            CTE_OTA_NXP_READY = FALSE;
+            xSemaphoreGive(CTE_OTA_NXP_READY_mutex);
         }
 
         /* loop time delay : 10 msec */
@@ -269,6 +292,8 @@ static void user_wifi_disconn(void *arg)
             ap_wifi_disconn_reason = 0;
             ap_wifi_disconn_flag = FALSE;
             xSemaphoreGive(wifi_conn_notify_mutex);
+
+            SetCTESocketDisconnection();
         }
 
         /* loop time delay : 10 msec */

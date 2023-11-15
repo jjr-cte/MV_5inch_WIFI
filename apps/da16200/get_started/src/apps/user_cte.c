@@ -12,6 +12,11 @@
 #include "user_cte.h"
 #include "nxp_fw_database.h" //Timmy
 
+SemaphoreHandle_t   CTE_OTA_NXP_READY_mutex = NULL;
+uint32_t            CTE_OTA_NXP_READY = FALSE;
+
+TaskHandle_t        CTE_OTA_TaskHandler = NULL;
+
 void CTE_OTA_NXP_INIT(void)
 {
     CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
@@ -33,7 +38,7 @@ void CTE_OTA_NXP_BOOTMODE(const CTE_OTA_NXP_BOOTMODE_T mode)
             _GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN3);
             break;
         default :
-            CTE_DBG("XXX !!\n");
+            CTE_DBG_XXX();
             break;
     }
 }
@@ -48,6 +53,20 @@ void CTE_OTA_NXP_RESET(void)
     vTaskDelay(pdMS_TO_TICKS(100));
     _GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN2);
     vTaskDelay(pdMS_TO_TICKS(100));
+}
+
+int atcmd_otaok(int argc, char *argv[])
+{
+    DA16X_UNUSED_ARG(argc);
+    DA16X_UNUSED_ARG(argv);
+
+//    configASSERT(CTE_OTA_NXP_READY_mutex);
+
+    xSemaphoreTake(CTE_OTA_NXP_READY_mutex, 300);
+    CTE_OTA_NXP_READY = TRUE;
+    xSemaphoreGive(CTE_OTA_NXP_READY_mutex);
+
+    return AT_CMD_ERR_CMD_OK;
 }
 
 int atcmd_wifi_ctrl(int argc, char *argv[])
@@ -76,6 +95,13 @@ int atcmd_wifi_ctrl(int argc, char *argv[])
     }
 
     return err_code;
+}
+
+static cte_ota_ctx_t    _cte_ota_ctx;
+
+cte_ota_ctx_t* cte_ota_get_context(void)
+{
+    return &_cte_ota_ctx;
 }
 
 #define XMODEM_POLY     0x1021
@@ -450,7 +476,8 @@ static void nxp_ota_msg_data_payload(uint8_t *raw, size_t length)
     CTE_DBG("%s(), length = %d\n", __func__, length);
 
     if (length > 512) {
-        CTE_DBG("XXX !! raw = 0x%08X, length = %d\n", raw, length);
+        CTE_DBG_XXX();
+        CTE_DBG("raw = 0x%08X, length = %d\n", raw, length);
         length = 512;
     }
 
@@ -476,77 +503,263 @@ static void nxp_ota_msg_data_payload(uint8_t *raw, size_t length)
 }
 
 //Timmy
-static int p_script_name = 0;
+static cte_ota_script_t     p_script_name = pNone;
 
-void nxp_script_select(int script_name)
+void nxp_script_select(cte_ota_script_t script_name)
 {
+    const uint8_t NXP_Ping[] = {0x5a, 0xa6};
+
+    CTE_DBG("%s(), script=%d\n", __func__, script_name);
+
     p_script_name = script_name;
-    uint8_t _5AA6[] = {0x5a, 0xa6};
-    puts_UART(g_ota_mcu_uart_idx, (char *)_5AA6, sizeof(_5AA6));
+    NXP_OTA_UART_WRITE(NXP_Ping);
 }
 
-void nxp_load_fw(int script_name)
+void nxp_load_fw(cte_ota_script_t script_name)
 {
     p_script_name = script_name;
-    switch (p_script_name)
+    switch (script_name)
     {
-        case pFLASHLOADER:   {puts_UART(g_ota_mcu_uart_idx, (char *)NXP_RT1176_IVT[0],    sizeof(NXP_RT1176_IVT[0]));}      break;
-        case pFWCONFIG:      {puts_UART(g_ota_mcu_uart_idx, (char *)NXP_RT1176_CONFIG[0], sizeof(NXP_RT1176_CONFIG[0]));}   break;
-        case pFWPACKAGE:     {puts_UART(g_ota_mcu_uart_idx, (char *)NXP_RT1176_FW[0],     sizeof(NXP_RT1176_FW[0]));}       break;
+        case pFLASHLOADER:
+            CTE_DBG("flashloader, segment 0\n");
+            NXP_OTA_UART_WRITE(NXP_RT1176_IVT[0]);
+            break;
+        case pFWCONFIG:
+            CTE_DBG("config, segment 0\n");
+            nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_CONFIG[0], sizeof(NXP_RT1176_CONFIG[0]));
+            break;
+        case pFWPACKAGE: {
+#if defined(CTE_OTA_FW_REAL)
+            cte_ota_ctx_t   *ctx = cte_ota_get_context();
+            uint8_t         *ptr = NULL;
+
+            xQueuePeek(ctx->q_p, &ptr, portMAX_DELAY);
+            configASSERT(ptr);
+
+            CTE_DBG("firmware, segment 0\n");
+
+            nxp_ota_msg_data_payload(ptr, ctx->cur_size);
+
+            vPortFree(ptr);
+
+            CTE_DBG("free  : ptr=0x%08x\n", ptr);
+
+            xQueueReceive(ctx->q_p, &ptr, portMAX_DELAY);
+#elif defined(CTE_OTA_FW_CANONLY_RAW)
+            CTE_DBG("firmware, segment 0\n");
+            nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_canonly[0], sizeof(NXP_RT1176_canonly[0]));
+#elif defined(CTE_OTA_FW_CANONLY_W_HEADER)
+            CTE_DBG("firmware, segment 0\n");
+            NXP_OTA_UART_WRITE(NXP_RT1176_FW[0]);
+#else
+#error
+#endif
+        }
+            break;
+        default :
+            CTE_DBG_XXX();
+            CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, script_name);
     }
 }
 
+/*
+ * NXP OTA flow :
+ *
+ * host     NXP     message             meaning
+ *      -->         5A A6               ping
+ *      <--         5A A7               ping response
+ *
+ *      -->         5A A4               command pGetProperty01_1
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A5               data payload : pFLASHLOADER
+ *      <--         5A A1               ack
+ *      -->         5A A5               data payload : pFLASHLOADER (continue)
+ *      <--         5A A1               ack
+ *                   ...
+ *
+ *      -->         5A A6               ping
+ *      <--         5A A7               ping response
+ *
+ *      -->         5A A4               command pGetProperty01_2
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFillMemory1
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFillMemory2
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFillMemory3
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pConfigureMemory_2
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFlashEraseRegionCode1000
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pConfigureMemoryCode
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pGetPropertyCode
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pWriteMemoryCode
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A5               data payload : pFWCONFIG
+ *      <--         5A A1               ack
+ *      -->         5A A5               data payload : pFWCONFIG (continue)
+ *      <--         5A A1               ack
+ *                   ...
+ *
+ *      -->         5A A5               data payload : pFWPACKAGE
+ *      <--         5A A1               ack
+ *      -->         5A A5               data payload : pFWPACKAGE (continue)
+ *      <--         5A A1               ack
+ *                   ...
+ *      <--         5A A1 5A A4         command ack : write memory finished
+ *      -->         5A A1               ack
+ */
+/*
+ * under AT-CMD task, priority OS_TASK_PRIORITY_USER + 6
+ * call path : atcmd_task() -> monitor_atcmd() -> nxpcmd_parser()
+ */
 UINT nxpcmd_parser(char *in_buf)
 {
-    uint8_t _5AA15AA4[]                = {0x5a, 0xa1, 0x5a, 0xa4};
-    uint8_t _5AA1[]                    = {0x5a, 0xa1};
-    uint8_t _5AA7[]                    = {0x5a, 0xa7};
-    uint8_t GetProperty01[]            = {0x5A, 0xA4, 0x0C, 0x00, 0x4B, 0x33, 0x07, 0x00, 0x00, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t FillMemory1[]              = {0x5A, 0xA4, 0x10, 0x00, 0x3B, 0xD2, 0x05, 0x00, 0x00, 0x03, 0x00, 0x20, 0x20, 0x20, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x90, 0xCF};
-    uint8_t ConfigureMemory[]          = {0x5A, 0xA4, 0x0C, 0x00, 0xBD, 0xB5, 0x11, 0x00, 0x00, 0x02, 0x09, 0x00, 0x00, 0x00, 0x00, 0x20, 0x20, 0x20};
-    uint8_t FillMemory2[]              = {0x5A, 0xA4, 0x10, 0x00, 0xC6, 0x72, 0x05, 0x00, 0x00, 0x03, 0x00, 0x20, 0x20, 0x20, 0x04, 0x00, 0x00, 0x00, 0x07, 0x02, 0x00, 0xC0};
-    uint8_t FillMemory3[]              = {0x5A, 0xA4, 0x10, 0x00, 0x13, 0x99, 0x05, 0x00, 0x00, 0x03, 0x04, 0x20, 0x20, 0x20, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t FlashEraseRegionCode1000[] = {0x5A, 0xA4, 0x10, 0x00, 0x5D, 0x92, 0x02, 0x00, 0x00, 0x03, 0x00, 0x20, 0x00, 0x30, 0x00, 0x00, 0xEE, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t ConfigureMemoryCode[]      = {0x5A, 0xA4, 0x0C, 0x00, 0xDE, 0xF6, 0x11, 0x00, 0x00, 0x02, 0x09, 0x00, 0x00, 0x00, 0x00, 0x30, 0x20, 0x20};
-    uint8_t GetPropertyCode[]          = {0x5A, 0xA4, 0x0C, 0x00, 0x37, 0xA2, 0x07, 0x00, 0x00, 0x02, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t WriteMemoryCode[]          = {0x5A, 0xA4, 0x10, 0x00, 0xC8, 0x7D, 0x04, 0x01, 0x00, 0x03, 0x00, 0x20, 0x00, 0x30, 0x8F, 0x9E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t _5AA15AA4[]                   = {0x5a, 0xa1, 0x5a, 0xa4};
+    const uint8_t NXP_Ack[]                     = {0x5a, 0xa1};
+    const uint8_t NXP_Nak[]                     = {0x5a, 0xa2};
+    const uint8_t NXP_AckAbort[]                = {0x5a, 0xa3};
+    const uint8_t NXP_PingResponse[]            = {0x5a, 0xa7};
+#if 0
+    /*
+     *                                                        | len (16b) | CRC (16b) | payload            4                       8                      12                      16
+     */
+    const uint8_t GetProperty01[]               = {0x5A, 0xA4, 0x0C, 0x00, 0x4B, 0x33, 0x07, 0x00, 0x00, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t FillMemory1[]                 = {0x5A, 0xA4, 0x10, 0x00, 0x3B, 0xD2, 0x05, 0x00, 0x00, 0x03, 0x00, 0x20, 0x20, 0x20, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x90, 0xCF};
+    const uint8_t ConfigureMemory[]             = {0x5A, 0xA4, 0x0C, 0x00, 0xBD, 0xB5, 0x11, 0x00, 0x00, 0x02, 0x09, 0x00, 0x00, 0x00, 0x00, 0x20, 0x20, 0x20};
+    const uint8_t FillMemory2[]                 = {0x5A, 0xA4, 0x10, 0x00, 0xC6, 0x72, 0x05, 0x00, 0x00, 0x03, 0x00, 0x20, 0x20, 0x20, 0x04, 0x00, 0x00, 0x00, 0x07, 0x02, 0x00, 0xC0};
+    const uint8_t FillMemory3[]                 = {0x5A, 0xA4, 0x10, 0x00, 0x13, 0x99, 0x05, 0x00, 0x00, 0x03, 0x04, 0x20, 0x20, 0x20, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t FlashEraseRegionCode1000[]    = {0x5A, 0xA4, 0x10, 0x00, 0x5D, 0x92, 0x02, 0x00, 0x00, 0x03, 0x00, 0x20, 0x00, 0x30, 0x00, 0x00, 0xEE, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t ConfigureMemoryCode[]         = {0x5A, 0xA4, 0x0C, 0x00, 0xDE, 0xF6, 0x11, 0x00, 0x00, 0x02, 0x09, 0x00, 0x00, 0x00, 0x00, 0x30, 0x20, 0x20};
+    const uint8_t GetPropertyCode[]             = {0x5A, 0xA4, 0x0C, 0x00, 0x37, 0xA2, 0x07, 0x00, 0x00, 0x02, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t WriteMemoryCode[]             = {0x5A, 0xA4, 0x10, 0x00, 0xC8, 0x7D, 0x04, 0x01, 0x00, 0x03, 0x00, 0x20, 0x00, 0x30, 0x8F, 0x9E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+#endif
 
-	if (strncmp((const char *)in_buf, (char *)_5AA7, sizeof(_5AA7)) == 0)
+    cte_ota_ctx_t   *ctx = cte_ota_get_context();
+
+    /* OCRAM (OnChip RAM)   region 0x2020_0000 - 0x2023_FFFF (256 KB) */
+    /* FlexSPI1             region 0x3000_0000 - 0x3FFF_FFFF (256 MB) */
+    const uint32_t  config_saddr        = 0x20202000;
+
+    /*
+     * 0x3000_0000 : erase from here
+     * 0x3000_1000 : config, length = 0x1000 (4 KB)
+     * 0x3000_2000 : firmware code
+     */
+    const uint32_t  flash_saddr         = 0x30001000;
+//    const uint32_t  flash_erase_count   = 0x02000000;   /* 0x0200_0000 (32 MB) */
+    uint32_t        flash_write_length  = ctx->total_size;
+
+    const uint32_t  memoryid            = 0x0;
+
+    static uint8_t  *last_ptr           = NULL;
+    static uint32_t last_size           = 0;
+
+    CTE_DBG_PRINT_TS();
+    CTE_DBG("<- NXP\n");
+    memory_dump(in_buf, 16);
+
+    if (memcmp(in_buf, NXP_PingResponse, sizeof(NXP_PingResponse)) == 0)
     {
+        uint8_t     payload[32];
+        uint16_t    payload_length = 0;
+
 	    switch (p_script_name)
 	    {
-	        case pGetProperty01_1:          {puts_UART(g_ota_mcu_uart_idx, (char *)GetProperty01, sizeof(GetProperty01));}                       break;
-	        case pGetProperty01_2:          {puts_UART(g_ota_mcu_uart_idx, (char *)GetProperty01, sizeof(GetProperty01));}                       break;
-	        case pFillMemory1:              {puts_UART(g_ota_mcu_uart_idx, (char *)FillMemory1, sizeof(FillMemory1));}                           break;
-	        case pFillMemory2:              {puts_UART(g_ota_mcu_uart_idx, (char *)FillMemory2, sizeof(FillMemory2));}                           break;
-	        case pFillMemory3:              {puts_UART(g_ota_mcu_uart_idx, (char *)FillMemory3, sizeof(FillMemory3));}                           break;
-	        case pConfigureMemory_2:        {puts_UART(g_ota_mcu_uart_idx, (char *)ConfigureMemory, sizeof(ConfigureMemory));}                   break;
-	        case pFlashEraseRegionCode1000: {puts_UART(g_ota_mcu_uart_idx, (char *)FlashEraseRegionCode1000, sizeof(FlashEraseRegionCode1000));} break;
-	        case pConfigureMemoryCode:      {puts_UART(g_ota_mcu_uart_idx, (char *)ConfigureMemoryCode, sizeof(ConfigureMemoryCode));}           break;
-	        case pGetPropertyCode:          {puts_UART(g_ota_mcu_uart_idx, (char *)GetPropertyCode, sizeof(GetPropertyCode));}                   break;
-	        case pWriteMemoryCode:          {puts_UART(g_ota_mcu_uart_idx, (char *)WriteMemoryCode, sizeof(WriteMemoryCode));}                   break;
+            case pGetProperty01_1 :
+                payload_length = nxp_ota_msg_get_property(payload, 0x1, memoryid);
+                break;
+            case pGetProperty01_2 :
+                payload_length = nxp_ota_msg_get_property(payload, 0x1, memoryid);
+                break;
+            case pFillMemory1 :
+                payload_length = nxp_ota_msg_fill_memory(payload, config_saddr,     4, 0xCF900001);
+                break;
+            case pFillMemory2 :
+                payload_length = nxp_ota_msg_fill_memory(payload, config_saddr,     4, 0xC0000207);
+                break;
+            case pFillMemory3 :
+                payload_length = nxp_ota_msg_fill_memory(payload, config_saddr + 4, 4, 0x0);
+                break;
+            case pConfigureMemory_2 :
+                payload_length = nxp_ota_msg_config_memory(payload, config_saddr);
+                break;
+            case pFlashEraseRegionCode1000 :
+                payload_length = nxp_ota_msg_flash_erase_region(payload, flash_saddr - 0x1000, flash_write_length + 0x2000, memoryid);
+                break;
+            case pConfigureMemoryCode :
+                payload_length = nxp_ota_msg_config_memory(payload, config_saddr + 0x1000);
+                break;
+            case pGetPropertyCode :
+                payload_length = nxp_ota_msg_get_property(payload, 0x0B, memoryid);
+                break;
+            case pWriteMemoryCode :
+                if ((0 == flash_write_length) || (0xFFFFFFFF == flash_write_length)) {
+                    CTE_DBG_XXX();
+                    CTE_DBG("flash_write_length = 0x%08X\n", flash_write_length);
+                }
+                else {
+                    payload_length = nxp_ota_msg_write_memory(payload, flash_saddr, flash_write_length + 0x1000, memoryid);
+                }
+                break;
+            default :
+                CTE_DBG_XXX();
+                CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, p_script_name);
 	    }
+
+        configASSERT(payload_length <= sizeof(payload));
+
+        NXP_OTA_UART_WRITE_N(payload, payload_length);
     }
-    else if (strncmp((const char *)in_buf, (char *)_5AA15AA4, sizeof(_5AA15AA4)) == 0)
+    else if (memcmp(in_buf, _5AA15AA4, sizeof(_5AA15AA4)) == 0)
     {
-        puts_UART(g_ota_mcu_uart_idx, (char *)_5AA1, sizeof(_5AA1));
-        vTaskDelay(8);
+        NXP_OTA_UART_WRITE(NXP_Ack);
+        vTaskDelay(pdMS_TO_TICKS(80));
 
         switch (p_script_name)
         {
-            case pGetProperty01_1:          {nxp_load_fw(pFLASHLOADER);}                    break;
-            case pGetProperty01_2:          {nxp_script_select(pFillMemory1);}              break;
-            case pFillMemory1:              {nxp_script_select(pFillMemory2);}              break;
-            case pFillMemory2:              {nxp_script_select(pFillMemory3);}              break;
-            case pFillMemory3:              {nxp_script_select(pConfigureMemory_2);}        break;
-            case pConfigureMemory_2:        {nxp_script_select(pFlashEraseRegionCode1000);} break;
-            case pFlashEraseRegionCode1000: {nxp_script_select(pConfigureMemoryCode);}      break;
-            case pConfigureMemoryCode:      {nxp_script_select(pGetPropertyCode);}          break;
-            case pGetPropertyCode:          {nxp_script_select(pWriteMemoryCode);}          break;
-            case pWriteMemoryCode:          {nxp_load_fw(pFWCONFIG);}                       break;
+            case pGetProperty01_1:          nxp_load_fw(pFLASHLOADER);                      break;
+            case pGetProperty01_2:          nxp_script_select(pFillMemory1);                break;
+            case pFillMemory1:              nxp_script_select(pFillMemory2);                break;
+            case pFillMemory2:              nxp_script_select(pFillMemory3);                break;
+            case pFillMemory3:              nxp_script_select(pConfigureMemory_2);          break;
+            case pConfigureMemory_2:        nxp_script_select(pFlashEraseRegionCode1000);   break;
+            case pFlashEraseRegionCode1000: nxp_script_select(pConfigureMemoryCode);        break;
+            case pConfigureMemoryCode:      nxp_script_select(pGetPropertyCode);            break;
+            case pGetPropertyCode:          nxp_script_select(pWriteMemoryCode);            break;
+            case pWriteMemoryCode:          nxp_load_fw(pFWCONFIG);                         break;
+            case pFWPACKAGE:
+                CTE_DBG("%s:%d, firmware finished\n", __func__, __LINE__);
+                break;
+            default :
+                CTE_DBG_XXX();
+                CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, p_script_name);
         }
     }
-    else if (strncmp((const char *)in_buf, (char *)_5AA1, sizeof(_5AA1)) == 0)
+    else if (memcmp(in_buf, NXP_Ack, sizeof(NXP_Ack)) == 0)
     {
         switch (p_script_name)
         {
@@ -558,13 +771,16 @@ UINT nxpcmd_parser(char *in_buf)
                 idx++;
 
                 if (idx < (sz - 1)) {
-                	puts_UART(g_ota_mcu_uart_idx, (char *)NXP_RT1176_IVT[idx], sizeof(NXP_RT1176_IVT[idx]));
+                    CTE_DBG("flashloader, segment %ld\n", idx);
+                    NXP_OTA_UART_WRITE(NXP_RT1176_IVT[idx]);
                 }
                 else if (idx == (sz - 1)) {
-                	puts_UART(g_ota_mcu_uart_idx, (char *)NXP_RT1176_IVT[idx], 40);
+                    CTE_DBG("flashloader, segment %ld\n", idx);
+                    NXP_OTA_UART_WRITE_N(NXP_RT1176_IVT[idx], 40);
                 }
                 else {
-                    vTaskDelay(300);
+                    CTE_DBG("flashloader finished, total segment = %ld\n", idx);
+                    vTaskDelay(pdMS_TO_TICKS(3000));
                     idx = 0;
                     nxp_script_select(pGetProperty01_2);
                 }
@@ -579,10 +795,15 @@ UINT nxpcmd_parser(char *in_buf)
                 idx++;
 
                 if (idx < sz) {
+                    CTE_DBG("config, segment %ld\n", idx);
                     nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_CONFIG[idx], sizeof(NXP_RT1176_CONFIG[idx]));
                 }
                 else {
-                    vTaskDelay(300);
+                    CTE_DBG("config finished, total segment = %ld\n", idx);
+                    vTaskDelay(pdMS_TO_TICKS(3000));
+
+                    xTaskNotifyGive(CTE_OTA_TaskHandler);
+
                     idx = 0;
                     nxp_load_fw(pFWPACKAGE);
                 }
@@ -591,24 +812,111 @@ UINT nxpcmd_parser(char *in_buf)
 
             case pFWPACKAGE:
             {
+#if defined(CTE_OTA_FW_REAL)
+                if (last_ptr) {
+                    vPortFree(last_ptr);
+
+                    CTE_DBG("free  : ptr=0x%08x\n", last_ptr);
+
+                    last_ptr = NULL;
+                }
+
+                xTaskNotifyGive(CTE_OTA_TaskHandler);
+
+                static uint32_t     idx = 0;
+
+                idx++;
+
+                if (idx < ctx->total_packet) {
+                    uint8_t         *ptr = NULL;
+
+                    xQueuePeek(ctx->q_p, &ptr, portMAX_DELAY);
+                    configASSERT(ptr);
+
+                    CTE_DBG("firmware, segment %ld\n", idx);
+
+                    nxp_ota_msg_data_payload(ptr, ctx->cur_size);
+
+                    configASSERT(!last_ptr);
+                    last_ptr = ptr;
+                    last_size = ctx->cur_size;
+
+                    xQueueReceive(ctx->q_p, &ptr, portMAX_DELAY);
+                }
+                else {
+                    CTE_DBG("firmware finished\n");
+                }
+#elif defined(CTE_OTA_FW_CANONLY_RAW)
+                static uint32_t     idx = 0;
+                size_t              sz = ARRAY_SIZE(NXP_RT1176_canonly);
+
+                idx++;
+
+                if (idx < sz - 1) {
+                    CTE_DBG("firmware, segment %ld\n", idx);
+                    nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_canonly[idx], sizeof(NXP_RT1176_canonly[idx]));
+                }
+                else if (idx == (sz - 1)) {
+                    CTE_DBG("firmware, segment %ld\n", idx);
+                    nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_canonly[idx], 144);
+                }
+                else {
+                    CTE_DBG("firmware finished, total segment = %ld\n", idx);
+                    vTaskDelay(pdMS_TO_TICKS(3000));
+                    idx = 0;
+                }
+#elif defined(CTE_OTA_FW_CANONLY_W_HEADER)
                 static uint32_t     idx = 0;
                 size_t              sz = ARRAY_SIZE(NXP_RT1176_FW);
 
                 idx++;
 
                 if (idx < (sz - 1)) {
-                	puts_UART(g_ota_mcu_uart_idx, (char *)NXP_RT1176_FW[idx], sizeof(NXP_RT1176_FW[idx]));
+                    CTE_DBG("firmware, segment %ld\n", idx);
+                    NXP_OTA_UART_WRITE(NXP_RT1176_FW[idx]);
                 }
                 else if (idx == (sz - 1)) {
-                	puts_UART(g_ota_mcu_uart_idx, (char *)NXP_RT1176_FW[idx], 150);
+                    CTE_DBG("firmware, segment %ld\n", idx);
+                    NXP_OTA_UART_WRITE_N(NXP_RT1176_FW[idx], 150);
                 }
                 else {
-                    vTaskDelay(300);
+                    CTE_DBG("firmware finished, total segment = %ld\n", idx);
+                    vTaskDelay(pdMS_TO_TICKS(3000));
                     idx = 0;
                 }
+#else
+#error
+#endif
             }
             break;
+
+            default :
+                CTE_DBG_XXX();
+                CTE_DBG("%s():%d, script=%d\n", __func__, __LINE__, p_script_name);
         }
     }
+    else if (memcmp(in_buf, NXP_Nak, sizeof(NXP_Nak)) == 0) {
+        /* The previous packet was corrupted and must be re-sent. */
+        CTE_DBG(RED_COLOR "NAK\n" CLEAR_COLOR);
+
+        if (pFWPACKAGE == p_script_name) {
+            configASSERT(last_ptr);
+
+            CTE_DBG("firmware last segment resent\n");
+            nxp_ota_msg_data_payload(last_ptr, last_size);
+        }
+        else {
+            configASSERT(0);
+        }
+    }
+    else if (memcmp(in_buf, NXP_AckAbort, sizeof(NXP_AckAbort)) == 0) {
+        CTE_DBG("AckAbort\n");
+        configASSERT(0);
+    }
+    else {
+        CTE_DBG_XXX();
+        configASSERT(0);
+    }
+
     return 0;
 }

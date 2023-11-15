@@ -43,7 +43,6 @@
 #include "da16x_compile_opt.h"
 #pragma GCC diagnostic ignored "-Wrestrict"
 
-#include "nxp_fw_database.h" //Timmy
 #include "sys_specific.h"
 
 #include "user_cte.h"
@@ -193,7 +192,7 @@ atcmd_tls_context *atcmd_tls_ctx_rtm_header = NULL;
 
 //CSH: Store CTE flow data.
 typedef struct _stCTEData {
-	UINT8	UpdateStatus;
+    cte_status_t   UpdateStatus;
 	INT32	FirmwareSize;
 	INT32	FirmwareTotalPacket;
 	INT32	PacketNumber;
@@ -201,9 +200,6 @@ typedef struct _stCTEData {
 	UINT8	CheckSum;
 } stCTEParam;
 stCTEParam CTEData;
-
-//Timmy
-extern int g_ota_mcu_uart_idx;
 
 const char esc_cmd_s_upper_case = 'S';
 const char esc_cmd_s_lower_case = 's';
@@ -280,214 +276,482 @@ static int atcmd_network_display(const int cid);
 static int atcmd_network_terminate_session(const int cid);
 
 //CSH: Create CTE control function
-void SetCTEStatus(UINT8 status)
+void CTEStatusSet(const cte_status_t status)
 {
-	CTEData.UpdateStatus = status;
+    CTE_DBG("%s(), %d -> %d\n", __func__, CTEData.UpdateStatus, status);
+
+    CTEData.UpdateStatus = status;
 }
+
+cte_status_t CTEStatusGet(void)
+{
+    return CTEData.UpdateStatus;
+}
+
 void SetCTESocketConnection(void)
 {
-	INT8	*ip_addr;
-	INT32	server_port, client_port;
+    const char          *ip_addr = "10.0.0.2";
+    const uint32_t      server_port = 1234;
+    const uint32_t      client_port = 2300;
+    atcmd_sess_context  *ctx = NULL;
 
-    ip_addr = "10.0.0.2";
-    server_port = 1234;
-    client_port = 2300;
-    
-    //CSH: It's AT+TRTC CMD, set DA16200 to client, set server and client port
-    atcmd_network_connect_tcpc(atcmd_transport_create_context(ATCMD_SESS_TCP_CLIENT), ip_addr, server_port, client_port);
-    PRINTF("CSH: SetCTESocketConnection\r\n");
+    CTE_DBG("%s()\n", __func__);
+
+    ctx = atcmd_transport_create_context(ATCMD_SESS_TCP_CLIENT);
+
+    if (!ctx) {
+        ATCMD_DBG("[%s:%d]Failed to create tcp client context\n", __func__, __LINE__);
+        return ;
+    }
+
+    int                 ret = 0;
+
+    ret = atcmd_network_connect_tcpc(ctx, (char *) ip_addr, server_port, client_port);
+
+    if (0 == ret) {
+        CTE_DBG("socket server connected\n");
+        return ;
+    }
+    else {
+        CTE_DBG("socket server connection failed : %s:%ld, from port %ld\n", ip_addr, server_port, client_port);
+
+        if (ctx) {
+            atcmd_transport_delete_context(ctx->cid);
+            ctx = NULL;
+        }
+    }
 }
+
 void SetCTESocketDisconnection(void)
 {
+    CTE_DBG("%s()\n", __func__);
+
 	atcmd_network_terminate_session(0xFF);
 
-	PRINTF("CSH: SetCTESocketDisconnection\r\n");
+    CTE_OTA_TaskHandler = NULL;
 }
-void CTESendDataToSocketServer(INT8 *data)
+
+void CTESendDataToSocketServer(const void *data, const size_t data_len)
 {
-    atcmd_sess_context *ctx = NULL;
-
-    INT32	peer_port;
-    INT8	*esc_params;
-    INT32	data_len;
-
-    esc_params = (INT8 *)data;
-    peer_port = 0;
-    data_len = strlen(data);
-//    PRINTF("CSH: data_len: %d\r\n", data_len);
+    CTE_DBG_PRINT_TS();
+    CTE_DBG("%s()\n", __func__);
 
     //CSH: It's <ESC>S1 CMD, send data to server, copy from Timmy sendInformationToMessageServer function.
-	for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i ++)
-	{
-	    ctx = atcmd_transport_find_context(i);
-	    if (ctx != NULL)
-	    {
-	        if ((ctx->type == ATCMD_SESS_TCP_CLIENT) && (ctx->ctx.tcpc->state == ATCMD_TCPC_STATE_CONNECTED))
-	        {
-	            char gw_str[16] = {0, };
-	            da16x_get_config_str(DA16X_CONF_STR_GATEWAY_0, gw_str);
-	            if (strlen(gw_str) == 0)
-	            {
-	            	PRINTF("\r\n[ERROR] Disconnect");
-	            }
-	            else
-	            {
-	                if (atcmd_tcpc_tx_with_peer_info(ctx->ctx.tcpc, gw_str, peer_port, esc_params, data_len) != 0)
-	                {
-	                	PRINTF("\r\n--->[ERROR] TCP_CLIENT_DATA_TRANSFER_FAIL");
-	                }
-	            }
-	        }
-	    }
-	}
-}
-void CTEGetSocketServerData(UINT8 *payload, INT32 payload_len)
-{
-#define _GET_HEAD	(3)
-	static UINT8	arrPayload[574];
-	UINT8	arrHead[4];
-	const INT8	*HeadAMD = "AMD";
-	const INT8	*HeadAST = "AST";
-	const INT8	*HeadART = "ART";
-	const INT8	*HeadAFH = "AFH";
-	const INT8	*HeadNAK = "NAK";
+    for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i++)
+    {
+        atcmd_sess_context      *ctx = atcmd_transport_find_context(i);
 
-	memset(arrPayload, 0, 512);
-	memcpy(arrHead, payload, _GET_HEAD);
+        if (ctx != NULL)
+        {
+            if ((ctx->type == ATCMD_SESS_TCP_CLIENT) && (ctx->ctx.tcpc->state == ATCMD_TCPC_STATE_CONNECTED))
+            {
+                char        gw_str[18] = {0, };     // NET_INFO_STR_LEN = 18
 
-	if(memcmp(arrHead, HeadAMD, _GET_HEAD) == 0)
-	{
-		//Format: AMD(3Byte), FirmwareSize(Int32), Total
-		memcpy(arrPayload, (payload + (_GET_HEAD + 1)), (payload_len - (_GET_HEAD + 1)));
-		SetCTEStatus(eCTE_Socket_AMD);
-	}
-	else if(memcmp(arrHead, HeadAST, _GET_HEAD) == 0)
-	{
-		SetCTEStatus(eCTE_Socket_AST);
-	}
-	else if(memcmp(arrHead, HeadART, _GET_HEAD) == 0)
-	{
-		memcpy(arrPayload, (payload + (_GET_HEAD + 1)), (payload_len - (_GET_HEAD + 1)));
-		SetCTEStatus(eCTE_Socket_ART);
-	}
-	else if(memcmp(arrHead, HeadAFH, _GET_HEAD) == 0)
-	{
-		SetCTEStatus(eCTE_Socket_AFH);
-	}
-	else if(memcmp(arrHead, HeadNAK, _GET_HEAD) == 0)
-	{
-		SetCTEStatus(eCTE_Socket_NAK);
-	}
+                da16x_get_config_str(DA16X_CONF_STR_GATEWAY_0, gw_str);
+
+                if (strlen(gw_str) == 0)
+                {
+                    CTE_DBG("\r\n[ERROR] Disconnect");
+                }
+                else
+                {
+                    if (atcmd_tcpc_tx_with_peer_info(ctx->ctx.tcpc, gw_str, 0, (char *) data, data_len) != 0)
+                    {
+                        CTE_DBG("\r\n--->[ERROR] TCP_CLIENT_DATA_TRANSFER_FAIL");
+                    }
+                    else {
+                        memory_dump(data, data_len);
+                    }
+                }
+            }
+        }
+    }
 }
 
-void CTESocketCtrlFlow(void)
+void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 {
-	INT8 *data = 0;
-	INT8 value[10] = {0};
-	INT8 str[50] = {0};
-	static UINT32 STCnt = 0;
-	static UINT8 StatusPrev = 0;
+    const ota_packet_type_t     p_type = (ota_packet_type_t) payload[0];
+    const cte_status_t          current_status = CTEStatusGet();
 
-	switch(CTEData.UpdateStatus)
+    if (current_status != eCTE_Socket_WaitingAck) {
+        CTE_DBG("WRONG STATE !! %s:%d, state = %d\n", __func__, __LINE__, current_status);
+        CTEStatusSet(eCTE_Socket_RST);
+        return;
+    }
+
+    if (p_type >= NUM_PTYPE) {
+        CTE_DBG_XXX();
+        CTE_DBG("%s:%d, p_type = %d\n", __func__, __LINE__, p_type);
+        memory_dump(payload, 16);
+        return;
+    }
+
+    CTE_DBG_PRINT_TS();
+    CTE_DBG("%s(), p_type = %d\n", __func__, p_type);
+
+    switch (p_type) {
+        case OTA_PKT_TYPE_AMD : {
+            ota_packet_amd_t    *p = (ota_packet_amd_t *) payload;
+
+            memory_dump(p, sizeof(*p));
+
+            if ((0xFFFFFFFF == ctx->total_size) && (0xFFFFFFFF == ctx->total_packet)) {
+                memset(ctx, 0, sizeof(*ctx));
+            }
+            else {
+                CTE_DBG_XXX();
+                CTE_DBG("%s:%d\n", __func__, __LINE__);
+                CTE_DBG("total_size = 0x%08X, total_packet = 0x%08X\n", ctx->total_size, ctx->total_packet);
+            }
+
+            ctx->total_size = ntohl(p->total_size);
+            ctx->total_packet = ntohl(p->total_packet);
+
+            CTE_DBG("AMD : total_size = 0x%08X (%ld), total_packet = 0x%04X (%ld)\n", ctx->total_size, ctx->total_size, ctx->total_packet, ctx->total_packet);
+
+            CTEStatusSet(eCTE_Socket_AMD);
+        }
+            break;
+
+        case OTA_PKT_TYPE_AST :
+            mbedtls_md5_init(&ctx->md5_ctx);
+            mbedtls_md5_starts_ret(&ctx->md5_ctx);
+
+            CTEStatusSet(eCTE_Socket_AST);
+
+            break;
+
+        case OTA_PKT_TYPE_ART : {
+            ota_packet_art_t    *p = (ota_packet_art_t *) payload;
+            uint32_t            cur_packet;
+            uint16_t            cur_size;
+            uint8_t             *ptr;
+
+#ifdef CTE_DBG_DUMP_PARTIAL
+            memory_dump(p, 16);     // we dont have to dump full payload
+#else
+            memory_dump(p, sizeof(*p));
+#endif
+
+            cur_packet = ntohl(p->packet_number);
+            cur_size = (uint16_t) ntohl(p->packet_size);
+
+            CTE_DBG("cur_packet = %ld, cur_size = %d, total_packet = %ld\n", cur_packet, cur_size, ctx->total_packet);
+
+            ptr = (uint8_t *) pvPortMalloc(cur_size);
+            configASSERT(ptr);
+
+            CTE_DBG("alloc : ptr=0x%08x, size=%d\n", ptr, cur_size);
+
+            memcpy(ptr, p->payload, cur_size);
+
+            uint8_t     checksum = 0;
+
+            for (size_t i = 0; i < cur_size; i++) {
+                checksum ^= ptr[i];
+            }
+
+            if (checksum == p->checksum) {
+                ctx->retx_cnt = 0;
+
+                mbedtls_md5_update_ret(&ctx->md5_ctx, ptr, cur_size);
+
+                ctx->cur_packet = cur_packet;
+                ctx->cur_size = cur_size;
+
+                xQueueSend(ctx->q_p, &ptr, portMAX_DELAY);
+
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+                CTEStatusSet(eCTE_Socket_ART);
+            }
+            else {
+                CTE_DBG("checksum mismatch ! packet number = %ld, packet checksum = 0x%02X, calculated checksum = 0x%02X\n",
+                         ctx->cur_packet, p->checksum, checksum);
+
+                ctx->retx_cnt++;
+
+                vPortFree(ptr);
+
+                CTE_DBG("free  : ptr=0x%08x\n", ptr);
+
+                if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
+                    CTEStatusSet(eCTE_Socket_RST);
+                }
+                else {
+                    CTEStatusSet(eCTE_Socket_RT);
+                }
+            }
+        }
+            break;
+
+        case OTA_PKT_TYPE_ARST : {
+            memset(ctx, 0xFF, sizeof(*ctx));
+
+            CTEStatusSet(eCTE_Socket_ARST);
+        }
+            break;
+
+        case OTA_PKT_TYPE_AFH : {
+            ota_packet_afh_t    *p = (ota_packet_afh_t *) payload;
+
+            memory_dump(p, sizeof(*p));
+
+            uint8_t     md5sum[16];
+
+            mbedtls_md5_finish_ret(&ctx->md5_ctx, md5sum);
+            mbedtls_md5_free(&ctx->md5_ctx);
+
+            CTE_DBG("our md5sum = ");
+            md5dump(md5sum);
+            CTE_DBG("app md5sum = ");
+            md5dump(p->md5sum);
+
+            if (0 == memcmp(md5sum, p->md5sum, sizeof(md5sum))) {
+                CTEStatusSet(eCTE_Socket_AFH);
+            }
+            else {
+                CTE_DBG("md5sum mismatch !!!\n");
+
+                CTEStatusSet(eCTE_Socket_RST);
+            }
+        }
+            break;
+
+        default :
+            CTE_DBG_XXX();
+            CTE_DBG("%s:%d\n", __func__, __LINE__);
+    }
+}
+
+/*
+ * under AT-CMD-TCPC task, priority OS_TASK_PRIORITY_USER + 7
+ * call path : atcmd_tcpc_task_entry() -> CTESocketCtrlFlow()
+ */
+void CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
+{
+    static uint32_t         timeout = 0;
+    static cte_status_t     StatusPrev = eCTE_Socket_None;
+
+    CTE_DBG_PRINT_TS();
+    CTE_DBG("%s(), status = %d\n", __func__, CTEStatusGet());
+
+    switch(CTEStatusGet())
 	{
-		case eCTE_Socket_MD:
-			vTaskDelay(200);
-			data = "MD";
-			CTESendDataToSocketServer(data);
-			SetCTEStatus(eCTE_Socket_WattingAck);
-			StatusPrev = eCTE_Socket_MD;
-			PRINTF("CSH: eCTE_Socket_MD\r\n");
-			break;
-		case eCTE_Socket_AMD:
-			CTEData.FirmwareSize = 80930;
-			CTEData.FirmwareTotalPacket = (159 - 1);
-			SetCTEStatus(eCTE_Socket_ST);
-			StatusPrev = eCTE_Socket_AMD;
-			PRINTF("CSH: eCTE_Socket_AMD\r\n");
+        case eCTE_Socket_MD: {
+            ota_packet_md_t     p;
 
-			atq_result = 0;
+            vTaskDelay(200);
+
+            p.type = OTA_PKT_TYPE_MD;
+            CTESendDataToSocketServer(&p, sizeof(p));
+
+            timeout = 0;
+            CTEStatusSet(eCTE_Socket_WaitingAck);
+            StatusPrev = eCTE_Socket_MD;
+        }
+            break;
+        case eCTE_Socket_AMD:
+            CTEData.FirmwareSize = ctx->total_size;
+            CTEData.FirmwareTotalPacket = ctx->total_packet;
+
+            CTEStatusSet(eCTE_Socket_ST);
+            StatusPrev = eCTE_Socket_AMD;
+            break;
+        case eCTE_Socket_ST: {
+            ota_packet_st_t     p;
+
+            p.type = OTA_PKT_TYPE_ST;
+            CTESendDataToSocketServer(&p, sizeof(p));
+
+            CTEData.PacketNumber = 0;
+            timeout = 0;
+            CTEStatusSet(eCTE_Socket_WaitingAck);
+            StatusPrev = eCTE_Socket_ST;
+        }
+            break;
+        case eCTE_Socket_AST:
+            atq_result = 0;
+
+            configASSERT(NULL == ctx->q_p);
+            ctx->q_p = xQueueCreate(1, sizeof(uint8_t *));
 
             CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
             CTE_OTA_NXP_RESET();
 
-			break;
-		case eCTE_Socket_ST:
-			data = "ST";
-			CTESendDataToSocketServer(data);
-			SetCTEStatus(eCTE_Socket_WattingAck);
-			StatusPrev = eCTE_Socket_ST;
-			CTEData.PacketNumber = 0;
-			PRINTF("CSH: eCTE_Socket_ST\r\n");
-			break;
-		case eCTE_Socket_AST:
-			SetCTEStatus(eCTE_Socket_RT);
-			StatusPrev = eCTE_Socket_AST;
-			PRINTF("CSH: eCTE_Socket_AST\r\n");
-			break;
-		case eCTE_Socket_RT:
-			data = "RT,";
-			memset(str, 0, sizeof(str));
-			sprintf(value, "%d", CTEData.PacketNumber);
-			memcpy(str, data, 3);
-			strcat(str, value);
+            // XXX: how long do we need to wait till NXP boot up ?
+            vTaskDelay(pdMS_TO_TICKS(1000));
+#if 0
+            UART_deinit(g_ota_mcu_uart_idx);
+            UART_init(g_ota_mcu_uart_idx);
+#endif
+            nxp_script_select(pGetProperty01_1);
 
-			CTESendDataToSocketServer(str);
-			SetCTEStatus(eCTE_Socket_WattingAck);
-			StatusPrev = eCTE_Socket_RT;
-			PRINTF("CSH: eCTE_Socket_RT, PacketCnt: %d\r\n", CTEData.PacketNumber);
-			break;
-		case eCTE_Socket_ART:
-			if(CTEData.PacketNumber >= CTEData.FirmwareTotalPacket)
-			{
-				SetCTEStatus(eCTE_Socket_FH);
-			}
-			else
-			{
-				SetCTEStatus(eCTE_Socket_RT);
-			}
-			StatusPrev = eCTE_Socket_ART;
-			CTEData.PacketNumber++;
-			PRINTF("CSH: eCTE_Socket_ART, PacketCnt: %d\r\n", CTEData.PacketNumber);
-			break;
-		case eCTE_Socket_FH:
-			data = "FH";
-			CTESendDataToSocketServer(data);
-			SetCTEStatus(eCTE_Socket_WattingAck);
-			StatusPrev = eCTE_Socket_FH;
-			PRINTF("CSH: eCTE_Socket_FH\r\n");
-			break;
-		case eCTE_Socket_AFH:
-			SetCTEStatus(eCTE_Socket_Close);
-			StatusPrev = eCTE_Socket_AFH;
-			PRINTF("CSH: eCTE_Socket_AFH\r\n");
-			break;
-		case eCTE_Socket_NAK:
-			SetCTEStatus(eCTE_Socket_None);
-			StatusPrev = eCTE_Socket_NAK;
-			PRINTF("CSH: eCTE_Socket_NAK\r\n");
-			break;
-		case eCTE_Socket_Close:;
-			SetCTESocketDisconnection();
-			SetCTEStatus(eCTE_Socket_None);
-			StatusPrev = eCTE_Socket_Close;
-			PRINTF("CSH: eCTE_Socket_Close\r\n");
-			break;
-		case eCTE_Socket_WattingAck:
-			vTaskDelay(10); //Unit: 10ms
-			//Detect and resent block.
-			if(StatusPrev == eCTE_Socket_ST)
-			{
-				if(STCnt++ > 30) //3000mS.
-				{
-					STCnt = 0;
-					SetCTEStatus(eCTE_Socket_ST);
-					PRINTF("CSH: eCTE_Socket_RT_Resent\r\n");
-				}
-			}
-			break;
-		case eCTE_Socket_None:
-		default:
-			break;
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+            CTEStatusSet(eCTE_Socket_RT);
+            StatusPrev = eCTE_Socket_AST;
+            break;
+        case eCTE_Socket_RT: {
+            ota_packet_rt_t     p;
+
+            p.type = OTA_PKT_TYPE_RT;
+            p.packet_number = htonl(CTEData.PacketNumber);
+            CTESendDataToSocketServer(&p, sizeof(p));
+
+            timeout = 0;
+            CTEStatusSet(eCTE_Socket_WaitingAck);
+            StatusPrev = eCTE_Socket_RT;
+            CTE_DBG("CSH: eCTE_Socket_RT, PacketCnt: %d\n", CTEData.PacketNumber);
+        }
+            break;
+        case eCTE_Socket_ART:
+            if (0 == ctx->retx_cnt) {
+                CTEData.PacketNumber = ctx->cur_packet + 1;
+            }
+            else {
+                // retransmit
+                CTEData.PacketNumber = ctx->cur_packet;
+            }
+
+            if(CTEData.PacketNumber >= CTEData.FirmwareTotalPacket)
+            {
+                CTEStatusSet(eCTE_Socket_FH);
+            }
+            else
+            {
+                CTEStatusSet(eCTE_Socket_RT);
+            }
+
+            StatusPrev = eCTE_Socket_ART;
+            CTE_DBG("CSH: eCTE_Socket_ART, PacketCnt: %d\n", CTEData.PacketNumber);
+            break;
+        case eCTE_Socket_RST: {
+            ota_packet_rst_t    p;
+
+            p.type = OTA_PKT_TYPE_RST;
+            CTESendDataToSocketServer(&p, sizeof(p));
+
+            timeout = 0;
+            CTEStatusSet(eCTE_Socket_WaitingAck);
+            StatusPrev = eCTE_Socket_RST;
+        }
+            break;
+        case eCTE_Socket_ARST: {
+            mbedtls_md5_free(&ctx->md5_ctx);
+
+            memset(ctx, 0, sizeof(*ctx));
+
+            CTEStatusSet(eCTE_Socket_MD);
+        }
+            break;
+        case eCTE_Socket_FH: {
+            ota_packet_fh_t     p;
+
+            p.type = OTA_PKT_TYPE_FH;
+            CTESendDataToSocketServer(&p, sizeof(p));
+
+            timeout = 0;
+            CTEStatusSet(eCTE_Socket_WaitingAck);
+            StatusPrev = eCTE_Socket_FH;
+        }
+            break;
+        case eCTE_Socket_AFH:
+            configASSERT(ctx->q_p);
+            vQueueDelete(ctx->q_p);
+            ctx->q_p = NULL;
+
+            CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
+            CTE_OTA_NXP_RESET();
+
+            CTEStatusSet(eCTE_Socket_Close);
+            StatusPrev = eCTE_Socket_AFH;
+            break;
+        case eCTE_Socket_NAK:
+            CTEStatusSet(eCTE_Socket_None);
+            StatusPrev = eCTE_Socket_NAK;
+            break;
+        case eCTE_Socket_Close:
+            SetCTESocketDisconnection();
+
+            CTEStatusSet(eCTE_Socket_None);
+            StatusPrev = eCTE_Socket_Close;
+            break;
+        case eCTE_Socket_WaitingAck: {
+            vTaskDelay(pdMS_TO_TICKS(100));
+
+            switch (StatusPrev) {
+                case eCTE_Socket_ST : {
+                    // it might take a few second to erase a flash, so wait for it
+                    if (timeout++ > CTE_OTA_TIMEOUT_ST) {
+                        timeout = 0;
+                        ctx->retx_cnt++;
+
+                        CTE_DBG("eCTE_Socket_WaitingAck (ST) timeout, timeout = %d\n", CTE_OTA_TIMEOUT_ST);
+
+                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
+                            ctx->retx_cnt = 0;
+                            CTEStatusSet(eCTE_Socket_RST);
+                            CTE_DBG("eCTE_Socket_ST -> eCTE_Socket_RST, retx exceeded %d\n", CTE_OTA_RETX_MAX);
+                        }
+                        else {
+                            CTEStatusSet(StatusPrev);
+                            CTE_DBG("eCTE_Socket_ST retx = %d\n", ctx->retx_cnt);
+                        }
+                    }
+                }
+                    break;
+
+                case eCTE_Socket_RT : {
+                    // for data packet, 500ms is too long
+                    if (timeout++ > CTE_OTA_TIMEOUT_RT) {
+                        timeout = 0;
+                        ctx->retx_cnt++;
+
+                        CTE_DBG("eCTE_Socket_WaitingAck (RT) timeout, timeout = %d\n", CTE_OTA_TIMEOUT_RT);
+
+                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
+                            ctx->retx_cnt = 0;
+                            CTEStatusSet(eCTE_Socket_RST);
+                            CTE_DBG("eCTE_Socket_RT -> eCTE_Socket_RST, retx exceeded %d\n", CTE_OTA_RETX_MAX);
+                        }
+                        else {
+                            CTEStatusSet(StatusPrev);
+                            CTE_DBG("eCTE_Socket_RT retx = %d\n", ctx->retx_cnt);
+                        }
+                    }
+                }
+                    break;
+
+                case eCTE_Socket_RST : {
+                    if (timeout++ > CTE_OTA_TIMEOUT_RST) {
+                        timeout = 0;
+                        ctx->retx_cnt++;
+
+                        CTE_DBG("eCTE_Socket_WaitingAck (RST) timeout, timeout = %d\n", CTE_OTA_TIMEOUT_RST);
+
+                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
+                            ctx->retx_cnt = 0;
+                            CTEStatusSet(eCTE_Socket_Close);
+                            CTE_DBG("eCTE_Socket_RT -> eCTE_Socket_RST, retx exceeded %d\n", CTE_OTA_RETX_MAX);
+                        }
+                        else {
+                            CTEStatusSet(StatusPrev);
+                            CTE_DBG("eCTE_Socket_RST retx = %d\n", ctx->retx_cnt);
+                        }
+                    }
+                }
+                    break;
+
+                default :
+                    // nothing
+                    ;
+            }
+        }
+            break;
+        case eCTE_Socket_None:
+        default:
+            break;
 	}
 }
 //CSH: End of create CTE control function
@@ -674,6 +938,7 @@ static const command_t commands[] = {
   { (char *)"AT+WFMODESWTCH",     atcmd_wifi,           0, (char *) "",                                           "[CON] Switch system run-mode"                          },
 #endif // __SUPPORT_WIFI_CONCURRENT__
 
+  { (char *)"AT+" ATCMD_OTAOK_CMD,atcmd_otaok,          0, (char *) "",                                           "Tell WiFi OK to go OTA"                                },
   { (char *)"AT+RFCTRL",          atcmd_wifi_ctrl,      1, (char *) "<on_off>",                                   "WiFi RF on/off"                                        },
 
   /* Network Layer Commands ============================================================ */
@@ -1136,7 +1401,7 @@ static void monitor_atcmd(void)
             if (atcmd_uart_mon_buf[0] == ESCAPE_CODE) {
                 /* DATA MODE */
                 esc_cmd_parser(atcmd_uart_mon_buf);
-            } else if (atcmd_uart_mon_buf[0] == 'Z') { //Timmy
+            } else if (atcmd_uart_mon_buf[0] == 0x5a) { //Timmy
             	nxpcmd_parser(atcmd_uart_mon_buf);
 #if defined (__SUPPORT_ATCMD_TLS__)
             } else if (strncmp(atcmd_uart_mon_buf, ATCMD_TLS_WR_CMD, strlen(ATCMD_TLS_WR_CMD)) == 0) {
@@ -1676,7 +1941,7 @@ static int gets_atcmd_uart(char *buf)
             continue;
         }
 
-        if(ch == 'Z')
+        if(ch == 0x5a)
         {
             if (buf[0] != '\0')
             {
