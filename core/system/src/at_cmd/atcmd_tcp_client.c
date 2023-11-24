@@ -34,10 +34,6 @@
 
 #if defined	(__SUPPORT_ATCMD__)
 
-#ifndef CTE_SOCKET_SERVER_ON_WIFI
-#include "user_cte.h"
-#endif
-
 #undef ENABLE_ATCMD_TCPC_DBG_INFO
 #undef ENABLE_ATCMD_TCPC_DBG_ERR
 
@@ -735,17 +731,6 @@ static void atcmd_tcpc_task_entry(void *param)
 	
 	ATCMD_TCPC_INFO("Ready to receive packet(cid:%d)\n", cid);
 
-#ifdef CTE_SOCKET_SERVER_ON_WIFI
-	/* no need */
-#else
-	cte_ota_ctx_t   *cte_ota_ctx = cte_ota_get_context();
-	memset(cte_ota_ctx, 0xFF, sizeof(*cte_ota_ctx));
-
-	if (NULL == CTE_OTA_TaskHandler) {
-	    CTE_OTA_TaskHandler = xTaskGetCurrentTaskHandle();
-	}
-#endif
-
 	while (ctx->state == ATCMD_TCPC_STATE_CONNECTED) {
 		memset(ctx->buffer, 0x00, conf->rx_buflen);
 
@@ -761,20 +746,7 @@ static void atcmd_tcpc_task_entry(void *param)
 
 		//ATCMD_TCPC_INFO("Waiting to receive packet(cid:%d)\n", cid);
 
-		//CSH: Get data from socket server.
 		ret = recv(ctx->socket, payload, payload_len, 0);
-
-#ifdef CTE_SOCKET_SERVER_ON_WIFI
-		/* no need */
-#else
-		//CSH: Get data and pass to CTE control flow.
-		if (ret > 0) {
-            CTEGetSocketServerData(cte_ota_ctx, payload);
-		}
-
-		//CSH: Call CTE main flow.
-		CTESocketCtrlFlow(cte_ota_ctx);
-#endif
 
 		dpm_app_sleep_ready_clear((char *)dpm_name);
 

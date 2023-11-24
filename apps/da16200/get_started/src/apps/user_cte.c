@@ -165,12 +165,7 @@ static uint16_t calc_crc16_byte(const uint16_t crc, const uint8_t byte)
 
 void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n)
 {
-#ifdef CTE_DBG_NXP_NO_WRITE
-    if ( ! is_no_write )
-        puts_UART(g_ota_mcu_uart_idx, (char *)(x), n);
-#else
     puts_UART(g_ota_mcu_uart_idx, (char *)(x), n);
-#endif
 
     CTE_DBG_PRINT_TS();
     CTE_DBG("-> NXP\n");
@@ -565,7 +560,6 @@ void nxp_load_fw(cte_ota_script_t script_name)
             nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_CONFIG[0], sizeof(NXP_RT1176_CONFIG[0]));
             break;
         case pFWPACKAGE: {
-#if defined(CTE_OTA_FW_REAL)
             cte_ota_ctx_t   *ctx = cte_ota_get_context();
             uint8_t         *ptr = NULL;
 
@@ -574,10 +568,6 @@ void nxp_load_fw(cte_ota_script_t script_name)
 
             CTE_DBG("firmware, segment 0\n");
 
-#ifdef CTE_DBG_NXP_NO_WRITE
-            is_no_write = 1;
-#endif
-
             nxp_ota_msg_data_payload(ptr, ctx->cur_size);
 
             vPortFree(ptr);
@@ -585,15 +575,6 @@ void nxp_load_fw(cte_ota_script_t script_name)
             CTE_DBG("free  : ptr=0x%08x\n", ptr);
 
             xQueueReceive(ctx->q_p, &ptr, portMAX_DELAY);
-#elif defined(CTE_OTA_FW_CANONLY_RAW)
-            CTE_DBG("firmware, segment 0\n");
-            nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_canonly[0], sizeof(NXP_RT1176_canonly[0]));
-#elif defined(CTE_OTA_FW_CANONLY_W_HEADER)
-            CTE_DBG("firmware, segment 0\n");
-            NXP_OTA_UART_WRITE(NXP_RT1176_FW[0]);
-#else
-#error
-#endif
         }
             break;
         default :
@@ -852,7 +833,6 @@ UINT nxpcmd_parser(char *in_buf)
 
             case pFWPACKAGE:
             {
-#if defined(CTE_OTA_FW_REAL)
                 if (last_ptr) {
                     vPortFree(last_ptr);
 
@@ -885,52 +865,7 @@ UINT nxpcmd_parser(char *in_buf)
                 }
                 else {
                     CTE_DBG("firmware finished\n");
-
-#ifdef CTE_DBG_NXP_NO_WRITE
-                    is_no_write = 0;
-#endif
                 }
-#elif defined(CTE_OTA_FW_CANONLY_RAW)
-                static uint32_t     idx = 0;
-                size_t              sz = ARRAY_SIZE(NXP_RT1176_canonly);
-
-                idx++;
-
-                if (idx < sz - 1) {
-                    CTE_DBG("firmware, segment %ld\n", idx);
-                    nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_canonly[idx], sizeof(NXP_RT1176_canonly[idx]));
-                }
-                else if (idx == (sz - 1)) {
-                    CTE_DBG("firmware, segment %ld\n", idx);
-                    nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_canonly[idx], 144);
-                }
-                else {
-                    CTE_DBG("firmware finished, total segment = %ld\n", idx);
-                    vTaskDelay(pdMS_TO_TICKS(3000));
-                    idx = 0;
-                }
-#elif defined(CTE_OTA_FW_CANONLY_W_HEADER)
-                static uint32_t     idx = 0;
-                size_t              sz = ARRAY_SIZE(NXP_RT1176_FW);
-
-                idx++;
-
-                if (idx < (sz - 1)) {
-                    CTE_DBG("firmware, segment %ld\n", idx);
-                    NXP_OTA_UART_WRITE(NXP_RT1176_FW[idx]);
-                }
-                else if (idx == (sz - 1)) {
-                    CTE_DBG("firmware, segment %ld\n", idx);
-                    NXP_OTA_UART_WRITE_N(NXP_RT1176_FW[idx], 150);
-                }
-                else {
-                    CTE_DBG("firmware finished, total segment = %ld\n", idx);
-                    vTaskDelay(pdMS_TO_TICKS(3000));
-                    idx = 0;
-                }
-#else
-#error
-#endif
             }
             break;
 

@@ -6,31 +6,13 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
-/* for nxp_fw_database.h */
-/* 要用的就 define 為 1, 不用的就 undef 掉 */
-#define CTE_OTA_FW_REAL          1
-#undef CTE_OTA_FW_CANONLY_RAW
-#undef CTE_OTA_FW_CANONLY_W_HEADER
-
-#if defined(CTE_OTA_FW_REAL) + defined(CTE_OTA_FW_CANONLY_RAW) + defined(CTE_OTA_FW_CANONLY_W_HEADER) != 1
-#error
-#endif
-
 #define ENABLE_CTE_DBG
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
-#undef CTE_DBG_NXP_NO_WRITE
 
 #ifndef ENABLE_CTE_DBG
 #undef CTE_DBG_DUMP_PARTIAL
 #undef CTE_DBG_TIME
-#endif
-
-/* socket server created on wifi module */
-#define CTE_SOCKET_SERVER_ON_WIFI
-
-#ifdef CTE_DBG_NXP_NO_WRITE
-extern uint32_t         is_no_write;
 #endif
 
 #ifdef ENABLE_CTE_DBG

@@ -290,7 +290,6 @@ cte_status_t CTEStatusGet(void)
 
 void SetCTESocketConnection(void)
 {
-#ifdef CTE_SOCKET_SERVER_ON_WIFI
     const uint32_t      server_port = 2300;
     atcmd_sess_context  *ctx = NULL;
 
@@ -328,38 +327,6 @@ void SetCTESocketConnection(void)
             ctx = NULL;
         }
     }
-#else
-    const char          *ip_addr = "10.0.0.2";
-    const uint32_t      server_port = 1234;
-    const uint32_t      client_port = 2300;
-    atcmd_sess_context  *ctx = NULL;
-
-    CTE_DBG("%s()\n", __func__);
-
-    ctx = atcmd_transport_create_context(ATCMD_SESS_TCP_CLIENT);
-
-    if (!ctx) {
-        ATCMD_DBG("[%s:%d]Failed to create tcp client context\n", __func__, __LINE__);
-        return ;
-    }
-
-    int                 ret = 0;
-
-    ret = atcmd_network_connect_tcpc(ctx, (char *) ip_addr, server_port, client_port);
-
-    if (0 == ret) {
-        CTE_DBG("socket server connected\n");
-        return ;
-    }
-    else {
-        CTE_DBG("socket server connection failed : %s:%ld, from port %ld\n", ip_addr, server_port, client_port);
-
-        if (ctx) {
-            atcmd_transport_delete_context(ctx->cid);
-            ctx = NULL;
-        }
-    }
-#endif
 }
 
 void SetCTESocketDisconnection(void)
@@ -376,7 +343,6 @@ void CTESendDataToSocketServer(const void *data, const size_t data_len)
     CTE_DBG_PRINT_TS();
     CTE_DBG("%s()\n", __func__);
 
-#ifdef CTE_SOCKET_SERVER_ON_WIFI
     for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i++)
     {
         atcmd_sess_context      *ctx = atcmd_transport_find_context(i);
@@ -403,38 +369,6 @@ void CTESendDataToSocketServer(const void *data, const size_t data_len)
             }
         }
     }
-#else
-    //CSH: It's <ESC>S1 CMD, send data to server, copy from Timmy sendInformationToMessageServer function.
-    for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i++)
-    {
-        atcmd_sess_context      *ctx = atcmd_transport_find_context(i);
-
-        if (ctx != NULL)
-        {
-            if ((ctx->type == ATCMD_SESS_TCP_CLIENT) && (ctx->ctx.tcpc->state == ATCMD_TCPC_STATE_CONNECTED))
-            {
-                char        gw_str[18] = {0, };     // NET_INFO_STR_LEN = 18
-
-                da16x_get_config_str(DA16X_CONF_STR_GATEWAY_0, gw_str);
-
-                if (strlen(gw_str) == 0)
-                {
-                    CTE_DBG("\r\n[ERROR] Disconnect");
-                }
-                else
-                {
-                    if (atcmd_tcpc_tx_with_peer_info(ctx->ctx.tcpc, gw_str, 0, (char *) data, data_len) != 0)
-                    {
-                        CTE_DBG("\r\n--->[ERROR] TCP_CLIENT_DATA_TRANSFER_FAIL");
-                    }
-                    else {
-                        memory_dump(data, data_len);
-                    }
-                }
-            }
-        }
-    }
-#endif
 }
 
 void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
@@ -1381,10 +1315,6 @@ static void atcmd_mqtt_msg_qos0_dpm_rsp_handle(void)
 
 #if defined ( __ATCMD_IF_UART1__ ) || defined ( __ATCMD_IF_UART2__ )
 
-#ifdef CTE_DBG_NXP_NO_WRITE
-uint32_t        is_no_write = 0;
-#endif
-
 static void monitor_atcmd(void)
 {
     atcmd_error_code    major_err_code = AT_CMD_ERR_CMD_OK;
@@ -1463,17 +1393,7 @@ static void monitor_atcmd(void)
     while (1) {
         memset(atcmd_uart_mon_buf, 0, USER_ATCMD_BUF);
 
-#ifdef CTE_DBG_NXP_NO_WRITE
-        if (is_no_write) {
-            atcmd_uart_mon_buf[0] = 0x5a;
-            atcmd_uart_mon_buf[1] = 0xa1;
-            major_err_code = AT_CMD_ERR_CMD_OK;
-        }
-        else
-            major_err_code = gets_atcmd_uart(atcmd_uart_mon_buf);
-#else
         major_err_code = gets_atcmd_uart(atcmd_uart_mon_buf);
-#endif
 
         if (major_err_code == AT_CMD_ERR_CMD_OK) {
 

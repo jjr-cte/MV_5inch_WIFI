@@ -1538,8 +1538,8 @@ static void atcmd_tcps_cli_task_entry(void *param)
 	}
 #endif // __SUPPORT_ATCMD_MULTI_SESSION__
 
-#ifdef CTE_SOCKET_SERVER_ON_WIFI
     cte_ota_ctx_t   *cte_ota_ctx = cte_ota_get_context();
+
     memset(cte_ota_ctx, 0xFF, sizeof(*cte_ota_ctx));
 
     if (NULL == CTE_OTA_TaskHandler) {
@@ -1547,7 +1547,6 @@ static void atcmd_tcps_cli_task_entry(void *param)
     }
 
     CTEStatusSet(eCTE_Socket_MD);
-#endif
 
 	cli_ctx->state = ATCMD_TCPS_CLI_STATE_CONNECTED;
 
@@ -1566,8 +1565,6 @@ static void atcmd_tcps_cli_task_entry(void *param)
 
 		ret = recv(cli_ctx->socket, payload, payload_len, 0);
 
-#ifdef CTE_SOCKET_SERVER_ON_WIFI
-        //CSH: Get data and pass to CTE control flow.
         if (ret > 0) {
             CTEGetSocketServerData(cte_ota_ctx, payload);
         }
@@ -1575,7 +1572,6 @@ static void atcmd_tcps_cli_task_entry(void *param)
         if (CTESocketCtrlFlow(cte_ota_ctx) < 0) {
             cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
         }
-#endif
 
 		dpm_app_sleep_ready_clear((char *)(cli_ctx->task_name));
 
