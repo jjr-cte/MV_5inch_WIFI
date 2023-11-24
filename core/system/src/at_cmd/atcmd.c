@@ -190,17 +190,6 @@ atcmd_tls_context *atcmd_tls_ctx_rtm_header = NULL;
 
 #endif // __SUPPORT_ATCMD_TLS__
 
-//CSH: Store CTE flow data.
-typedef struct _stCTEData {
-    cte_status_t   UpdateStatus;
-	INT32	FirmwareSize;
-	INT32	FirmwareTotalPacket;
-	INT32	PacketNumber;
-	INT16	PacketSize;
-	UINT8	CheckSum;
-} stCTEParam;
-stCTEParam CTEData;
-
 const char esc_cmd_s_upper_case = 'S';
 const char esc_cmd_s_lower_case = 's';
 const char esc_cmd_m_upper_case = 'M';
@@ -276,16 +265,19 @@ static int atcmd_network_display(const int cid);
 static int atcmd_network_terminate_session(const int cid);
 
 //CSH: Create CTE control function
+
+static cte_status_t _status = eCTE_Socket_None;
+
 void CTEStatusSet(const cte_status_t status)
 {
-    CTE_DBG("%s(), %s -> %s\n", __func__, cte_status_str[CTEData.UpdateStatus], cte_status_str[status]);
+    CTE_DBG("%s(), %s -> %s\n", __func__, cte_status_str[_status], cte_status_str[status]);
 
-    CTEData.UpdateStatus = status;
+    _status = status;
 }
 
 cte_status_t CTEStatusGet(void)
 {
-    return CTEData.UpdateStatus;
+    return _status;
 }
 
 void SetCTESocketConnection(void)
@@ -426,9 +418,11 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 
         case OTA_PKT_TYPE_ART : {
             ota_packet_art_t    *p = (ota_packet_art_t *) payload;
-            uint32_t            cur_packet;
-            uint16_t            cur_size;
-            uint8_t             *ptr;
+            uint32_t            cur_packet = ntohl(p->packet_number);
+            uint16_t            cur_size = (uint16_t) ntohl(p->packet_size);
+
+            configASSERT(cur_packet == ctx->rx_id);
+            configASSERT(cur_size <= OTA_CTE_APP_LEN);
 
 #ifdef CTE_DBG_DUMP_PARTIAL
             memory_dump(p, 16);     // we dont have to dump full payload
@@ -436,47 +430,45 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
             memory_dump(p, sizeof(*p));
 #endif
 
-            cur_packet = ntohl(p->packet_number);
-            cur_size = (uint16_t) ntohl(p->packet_size);
-
-            CTE_DBG("cur_packet = %ld, cur_size = %d, total_packet = %ld\n", cur_packet, cur_size, ctx->total_packet);
-
-            ptr = (uint8_t *) pvPortMalloc(cur_size);
-            configASSERT(ptr);
-
-            CTE_DBG("alloc : ptr=0x%08x, size=%d\n", ptr, cur_size);
-
-            memcpy(ptr, p->payload, cur_size);
+            CTE_DBG("cur_packet = %ld, cur_size = %ld, total_packet = %ld\n", cur_packet, cur_size, ctx->total_packet);
 
             uint8_t     checksum = 0;
 
             for (size_t i = 0; i < cur_size; i++) {
-                checksum ^= ptr[i];
+                checksum ^= p->payload[i];
             }
 
             if (checksum == p->checksum) {
                 ctx->retx_cnt = 0;
 
-                mbedtls_md5_update_ret(&ctx->md5_ctx, ptr, cur_size);
+                mbedtls_md5_update_ret(&ctx->md5_ctx, p->payload, cur_size);
 
-                ctx->cur_packet = cur_packet;
-                ctx->cur_size = cur_size;
+                cte_ota_queue_elem_t    *e = (cte_ota_queue_elem_t *) pvPortMalloc(sizeof(cte_ota_queue_elem_t));
+                configASSERT(e);
 
-                xQueueSend(ctx->q_p, &ptr, portMAX_DELAY);
+                e->ptr  = (uint8_t *) pvPortMalloc(cur_size);
+                configASSERT(e->ptr);
+                CTE_DBG("alloc : ptr=0x%08x, size=%d\n", e->ptr, cur_size);
 
-                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                e->id   = (uint16_t) cur_packet;
+                e->len  = cur_size;
+                e->slot = 0;
+
+                memcpy(e->ptr, p->payload, cur_size);
+
+                xQueueSend(ctx->q_p, &e, portMAX_DELAY);
+
+                CTE_DBG("enqueue, id = %ld, len = %ld, q_len = %ld\n", e->id, e->len, uxQueueMessagesWaiting(ctx->q_p));
+
+//                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
                 CTEStatusSet(eCTE_Socket_ART);
             }
             else {
                 CTE_DBG("checksum mismatch ! packet number = %ld, packet checksum = 0x%02X, calculated checksum = 0x%02X\n",
-                         ctx->cur_packet, p->checksum, checksum);
+                        cur_packet, p->checksum, checksum);
 
                 ctx->retx_cnt++;
-
-                vPortFree(ptr);
-
-                CTE_DBG("free  : ptr=0x%08x\n", ptr);
 
                 if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
                     CTEStatusSet(eCTE_Socket_RST);
@@ -527,6 +519,58 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
     }
 }
 
+void cte_ota_ctx_queue_cleanup(cte_ota_ctx_t *ctx)
+{
+    if (!ctx)
+        return;
+
+    /*
+     * ctx->e_working might already be freed, dont ASSERT() here
+     * scenario as following :
+     * the last octet of the file stream is located at the latest
+     *    slot of the data packet from app. when it is ACKed by NXP,
+     *    nxp_ota_slot_inc() freed that data packet
+     */
+    if (ctx->e_working) {
+        configASSERT(ctx->e_working->ptr);
+
+        if (ctx->e_working->ptr) {
+            vPortFree(ctx->e_working->ptr);
+            CTE_DBG("free  : ptr=0x%08x\n", ctx->e_working->ptr);
+            ctx->e_working->ptr = NULL;
+        }
+
+        vPortFree(ctx->e_working);
+        ctx->e_working = NULL;
+    }
+
+    configASSERT(ctx->q_p);
+
+    while (1) {
+        cte_ota_queue_elem_t    *e = NULL;
+
+        xQueueReceive(ctx->q_p, &e, portNO_DELAY);
+
+        if (e) {
+            configASSERT(e->ptr);
+
+            if (e->ptr) {
+                vPortFree(e->ptr);
+                CTE_DBG("free  : ptr=0x%08x\n", e->ptr);
+                e->ptr = NULL;
+            }
+
+            vPortFree(e);
+        }
+        else {
+            break;
+        }
+    }
+
+    vQueueDelete(ctx->q_p);
+    ctx->q_p = NULL;
+}
+
 /*
  * under AT-CMD-TCPC task, priority OS_TASK_PRIORITY_USER + 7
  * call path : atcmd_tcpc_task_entry() -> CTESocketCtrlFlow()
@@ -555,9 +599,6 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
         }
             break;
         case eCTE_Socket_AMD:
-            CTEData.FirmwareSize = ctx->total_size;
-            CTEData.FirmwareTotalPacket = ctx->total_packet;
-
             CTEStatusSet(eCTE_Socket_ST);
             StatusPrev = eCTE_Socket_AMD;
             break;
@@ -567,7 +608,6 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             p.type = OTA_PKT_TYPE_ST;
             CTESendDataToSocketServer(&p, sizeof(p));
 
-            CTEData.PacketNumber = 0;
             timeout = 0;
             CTEStatusSet(eCTE_Socket_WaitingAck);
             StatusPrev = eCTE_Socket_ST;
@@ -577,7 +617,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             atq_result = 0;
 
             configASSERT(NULL == ctx->q_p);
-            ctx->q_p = xQueueCreate(1, sizeof(uint8_t *));
+            ctx->q_p = xQueueCreate(OTA_CTE_BUFFER_QUEUE_SIZE, sizeof(cte_ota_queue_elem_t *));
 
             CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
             CTE_OTA_NXP_RESET();
@@ -599,26 +639,28 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             ota_packet_rt_t     p;
 
             p.type = OTA_PKT_TYPE_RT;
-            p.packet_number = htonl(CTEData.PacketNumber);
+            p.packet_number = htonl(ctx->rx_id);
             CTESendDataToSocketServer(&p, sizeof(p));
 
             timeout = 0;
             CTEStatusSet(eCTE_Socket_WaitingAck);
             StatusPrev = eCTE_Socket_RT;
-            CTE_DBG("CSH: eCTE_Socket_RT, PacketCnt: %d\n", CTEData.PacketNumber);
+            CTE_DBG("CSH: eCTE_Socket_RT, PacketCnt: %d\n", ctx->rx_id);
         }
             break;
         case eCTE_Socket_ART:
             if (0 == ctx->retx_cnt) {
-                CTEData.PacketNumber = ctx->cur_packet + 1;
+                ctx->rx_id++;
             }
             else {
-                // retransmit
-                CTEData.PacketNumber = ctx->cur_packet;
+                // rx_id remains
+                ;
             }
 
-            if(CTEData.PacketNumber >= CTEData.FirmwareTotalPacket)
+            if(ctx->rx_id >= ctx->total_packet)
             {
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
                 CTEStatusSet(eCTE_Socket_FH);
             }
             else
@@ -627,7 +669,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             }
 
             StatusPrev = eCTE_Socket_ART;
-            CTE_DBG("CSH: eCTE_Socket_ART, PacketCnt: %d\n", CTEData.PacketNumber);
+            CTE_DBG("CSH: eCTE_Socket_ART, PacketCnt: %d\n", ctx->rx_id);
             break;
         case eCTE_Socket_RST: {
             ota_packet_rst_t    p;
@@ -641,6 +683,8 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
         }
             break;
         case eCTE_Socket_ARST: {
+            cte_ota_ctx_queue_cleanup(ctx);
+
             mbedtls_md5_free(&ctx->md5_ctx);
 
             memset(ctx, 0, sizeof(*ctx));
@@ -659,16 +703,15 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             StatusPrev = eCTE_Socket_FH;
         }
             break;
-        case eCTE_Socket_AFH:
-            configASSERT(ctx->q_p);
-            vQueueDelete(ctx->q_p);
-            ctx->q_p = NULL;
+        case eCTE_Socket_AFH: {
+            cte_ota_ctx_queue_cleanup(ctx);
 
             CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
             CTE_OTA_NXP_RESET();
 
             CTEStatusSet(eCTE_Socket_Close);
             StatusPrev = eCTE_Socket_AFH;
+        }
             break;
         case eCTE_Socket_NAK:
             CTEStatusSet(eCTE_Socket_None);
@@ -709,7 +752,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
                         timeout = 0;
                         ctx->retx_cnt++;
 
-                        CTE_DBG("eCTE_Socket_WaitingAck (RT) timeout, timeout = %d\n", CTE_OTA_TIMEOUT_RT);
+                        CTE_DBG("eCTE_Socket_WaitingAck (RT) timeout, rx_id = %ld, timeout = %d\n", ctx->rx_id, CTE_OTA_TIMEOUT_RT);
 
                         if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
                             ctx->retx_cnt = 0;
@@ -737,6 +780,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
                             CTE_DBG("eCTE_Socket_RT -> eCTE_Socket_RST, retx exceeded %d\n", CTE_OTA_RETX_MAX);
                         }
                         else {
+                            cte_ota_ctx_queue_cleanup(ctx);
                             CTEStatusSet(StatusPrev);
                             CTE_DBG("eCTE_Socket_RST retx = %d\n", ctx->retx_cnt);
                         }

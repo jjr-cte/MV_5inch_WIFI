@@ -506,10 +506,10 @@ static void nxp_ota_msg_data_payload(uint8_t *raw, size_t length)
 
     CTE_DBG("%s(), length = %d\n", __func__, length);
 
-    if (length > 512) {
+    if (length > OTA_CTE_NXP_LEN) {
         CTE_DBG_XXX();
         CTE_DBG("raw = 0x%08X, length = %d\n", raw, length);
-        length = 512;
+        length = OTA_CTE_NXP_LEN;
     }
 
     memcpy(&buf[idx], t->data, t->length);
@@ -546,6 +546,54 @@ void nxp_script_select(cte_ota_script_t script_name)
     NXP_OTA_UART_WRITE(NXP_Ping);
 }
 
+void nxp_ota_slot_write(cte_ota_ctx_t *ctx)
+{
+    cte_ota_queue_elem_t    *e = ctx->e_working;
+
+    if (NULL == e) {
+        xQueueReceive(ctx->q_p, &ctx->e_working, portMAX_DELAY);
+        configASSERT(ctx->e_working);
+
+        e = ctx->e_working;
+
+        CTE_DBG("dequeue, id = %ld, len = %ld, q_len = %ld\n", e->id, e->len, uxQueueMessagesWaiting(ctx->q_p));
+    }
+
+    size_t      sent = OTA_CTE_NXP_LEN * e->slot;
+    size_t      remainings = e->len - sent;
+    uint8_t     *ptr = e->ptr + sent;
+
+    CTE_DBG("firmware, block %ld, slot %ld, sent = %d, remainings = %d, ptr = 0x%08x\n", e->id, e->slot, sent, remainings, ptr);
+    nxp_ota_msg_data_payload(ptr, configMIN(remainings, OTA_CTE_NXP_LEN));
+
+    if ((ctx->total_packet == ((uint32_t) e->id + 1)) && (remainings <= OTA_CTE_NXP_LEN)) {
+        CTE_DBG("firmware finished\n");
+        xTaskNotifyGive(CTE_OTA_TaskHandler);
+    }
+}
+
+void nxp_ota_slot_inc(cte_ota_ctx_t *ctx)
+{
+    cte_ota_queue_elem_t    *e = ctx->e_working;
+
+    configASSERT(e);
+
+    e->slot++;
+
+    if (OTA_CTE_NXP_PKTS == e->slot) {
+        configASSERT(e->ptr);
+
+        if (e->ptr) {
+            vPortFree(e->ptr);
+            CTE_DBG("free  : ptr=0x%08x\n", e->ptr);
+            e->ptr = NULL;
+        }
+
+        vPortFree(e);
+        ctx->e_working = NULL;
+    }
+}
+
 void nxp_load_fw(cte_ota_script_t script_name)
 {
     p_script_name = script_name;
@@ -560,21 +608,8 @@ void nxp_load_fw(cte_ota_script_t script_name)
             nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_CONFIG[0], sizeof(NXP_RT1176_CONFIG[0]));
             break;
         case pFWPACKAGE: {
-            cte_ota_ctx_t   *ctx = cte_ota_get_context();
-            uint8_t         *ptr = NULL;
-
-            xQueuePeek(ctx->q_p, &ptr, portMAX_DELAY);
-            configASSERT(ptr);
-
             CTE_DBG("firmware, segment 0\n");
-
-            nxp_ota_msg_data_payload(ptr, ctx->cur_size);
-
-            vPortFree(ptr);
-
-            CTE_DBG("free  : ptr=0x%08x\n", ptr);
-
-            xQueueReceive(ctx->q_p, &ptr, portMAX_DELAY);
+            nxp_ota_slot_write(cte_ota_get_context());
         }
             break;
         default :
@@ -696,9 +731,6 @@ UINT nxpcmd_parser(char *in_buf)
 
     const uint32_t  memoryid            = 0x0;
 
-    static uint8_t  *last_ptr           = NULL;
-    static uint32_t last_size           = 0;
-
     CTE_DBG_PRINT_TS();
     CTE_DBG("<- NXP\n");
     memory_dump(in_buf, 16);
@@ -758,7 +790,6 @@ UINT nxpcmd_parser(char *in_buf)
     else if (memcmp(in_buf, _5AA15AA4, sizeof(_5AA15AA4)) == 0)
     {
         NXP_OTA_UART_WRITE(NXP_Ack);
-        vTaskDelay(pdMS_TO_TICKS(80));
 
         switch (p_script_name)
         {
@@ -833,39 +864,8 @@ UINT nxpcmd_parser(char *in_buf)
 
             case pFWPACKAGE:
             {
-                if (last_ptr) {
-                    vPortFree(last_ptr);
-
-                    CTE_DBG("free  : ptr=0x%08x\n", last_ptr);
-
-                    last_ptr = NULL;
-                }
-
-                xTaskNotifyGive(CTE_OTA_TaskHandler);
-
-                static uint32_t     idx = 0;
-
-                idx++;
-
-                if (idx < ctx->total_packet) {
-                    uint8_t         *ptr = NULL;
-
-                    xQueuePeek(ctx->q_p, &ptr, portMAX_DELAY);
-                    configASSERT(ptr);
-
-                    CTE_DBG("firmware, segment %ld\n", idx);
-
-                    nxp_ota_msg_data_payload(ptr, ctx->cur_size);
-
-                    configASSERT(!last_ptr);
-                    last_ptr = ptr;
-                    last_size = ctx->cur_size;
-
-                    xQueueReceive(ctx->q_p, &ptr, portMAX_DELAY);
-                }
-                else {
-                    CTE_DBG("firmware finished\n");
-                }
+                nxp_ota_slot_inc(ctx);
+                nxp_ota_slot_write(ctx);
             }
             break;
 
@@ -879,10 +879,7 @@ UINT nxpcmd_parser(char *in_buf)
         CTE_DBG(RED_COLOR "NAK\n" CLEAR_COLOR);
 
         if (pFWPACKAGE == p_script_name) {
-            configASSERT(last_ptr);
-
-            CTE_DBG("firmware last segment resent\n");
-            nxp_ota_msg_data_payload(last_ptr, last_size);
+            nxp_ota_slot_write(ctx);
         }
         else {
             configASSERT(0);

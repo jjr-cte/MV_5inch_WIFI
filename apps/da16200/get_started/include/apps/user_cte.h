@@ -149,6 +149,22 @@ typedef enum _ota_packet_type_t {
 extern const char *ota_packet_type_str[];
 
 /*
+ *      app         wifi            NXP
+ *       | <-     -> | <-         -> |
+ *            ^              ^
+ *     OTA_CTE_APP_LEN  OTA_CTE_NXP_LEN
+ */
+#define OTA_CTE_NXP_LEN             512         /* defined by NXP */
+#define OTA_CTE_NXP_PKTS            16
+#define OTA_CTE_APP_LEN             (OTA_CTE_NXP_LEN * OTA_CTE_NXP_PKTS)
+#define OTA_CTE_BUFFER_QUEUE_SIZE   32
+
+/* confirmed with app provider */
+#if OTA_CTE_APP_LEN != 8192
+    #error
+#endif
+
+/*
  * OTA_PKT_TYPE_MD
  * OTA_PKT_TYPE_ST
  * OTA_PKT_TYPE_AST
@@ -195,7 +211,7 @@ typedef struct _ota_packet_art_t {
     uint8_t     _pad[2];
     uint32_t    packet_number;
     uint32_t    packet_size;
-    uint8_t     payload[512];
+    uint8_t     payload[OTA_CTE_APP_LEN];
 } ota_packet_art_t;
 
 /*
@@ -210,13 +226,20 @@ typedef struct _ota_packet_afh_t {
 //Timmy
 extern int g_ota_mcu_uart_idx;
 
+typedef struct _cte_ota_queue_elem_t {
+    uint16_t    id;
+    uint16_t    len;
+    uint8_t     slot;
+    uint8_t     *ptr;
+} cte_ota_queue_elem_t;
+
 typedef struct _cte_ota_ctx_t {
     uint32_t    total_size;
     uint32_t    total_packet;
-    uint32_t    cur_packet;
-    uint16_t    cur_size;
+    uint16_t    rx_id;
     uint8_t     retx_cnt;
     QueueHandle_t           q_p;
+    cte_ota_queue_elem_t    *e_working;
     mbedtls_md5_context     md5_ctx;
 } cte_ota_ctx_t;
 
