@@ -985,7 +985,6 @@ static const command_t commands[] = {
   { (char *)"AT+WFMODESWTCH",     atcmd_wifi,           0, (char *) "",                                           "[CON] Switch system run-mode"                          },
 #endif // __SUPPORT_WIFI_CONCURRENT__
 
-  { (char *)"AT+" ATCMD_OTAOK_CMD,atcmd_otaok,          0, (char *) "",                                           "Tell WiFi OK to go OTA"                                },
   { (char *)"AT+RFCTRL",          atcmd_wifi_ctrl,      1, (char *) "<on_off>",                                   "WiFi RF on/off"                                        },
 
   /* Network Layer Commands ============================================================ */

@@ -43,9 +43,6 @@ const char *ota_packet_type_str[] = {
 
 #endif /* ENABLE_CTE_DBG */
 
-SemaphoreHandle_t   CTE_OTA_NXP_READY_mutex = NULL;
-uint32_t            CTE_OTA_NXP_READY = FALSE;
-
 TaskHandle_t        CTE_OTA_TaskHandler = NULL;
 
 void CTE_OTA_NXP_INIT(void)
@@ -84,20 +81,6 @@ void CTE_OTA_NXP_RESET(void)
     vTaskDelay(pdMS_TO_TICKS(100));
     _GPIO_RETAIN_HIGH(GPIO_UNIT_A, GPIO_PIN2);
     vTaskDelay(pdMS_TO_TICKS(100));
-}
-
-int atcmd_otaok(int argc, char *argv[])
-{
-    DA16X_UNUSED_ARG(argc);
-    DA16X_UNUSED_ARG(argv);
-
-//    configASSERT(CTE_OTA_NXP_READY_mutex);
-
-    xSemaphoreTake(CTE_OTA_NXP_READY_mutex, 300);
-    CTE_OTA_NXP_READY = TRUE;
-    xSemaphoreGive(CTE_OTA_NXP_READY_mutex);
-
-    return AT_CMD_ERR_CMD_OK;
 }
 
 int atcmd_wifi_ctrl(int argc, char *argv[])

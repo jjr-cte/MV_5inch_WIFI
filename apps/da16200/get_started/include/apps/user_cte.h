@@ -38,18 +38,12 @@ typedef enum _CTE_OTA_NXP_BOOTMODE_T {
     NXP_BOOT_OTA
 } CTE_OTA_NXP_BOOTMODE_T;
 
-extern SemaphoreHandle_t    CTE_OTA_NXP_READY_mutex;
-extern uint32_t             CTE_OTA_NXP_READY;
-
-#define ATCMD_OTAOK_CMD     "OTAOK"
-
 extern void CTE_OTA_NXP_INIT(void);
 extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
 extern void CTE_OTA_NXP_RESET(void);
 
 extern TaskHandle_t         CTE_OTA_TaskHandler;
 
-extern int atcmd_otaok(int argc, char *argv[]);
 extern int atcmd_wifi_ctrl(int argc, char *argv[]);
 
 #define SCRIPT_ENUM                         \

@@ -174,26 +174,7 @@ static void user_wifi_conn(void *arg)
             ap_wifi_conn_flag = FALSE;
             xSemaphoreGive(wifi_conn_notify_mutex);
 
-            if (NULL == CTE_OTA_NXP_READY_mutex) {
-                CTE_OTA_NXP_READY_mutex = xSemaphoreCreateMutex();
-
-                CTE_DBG("CTE_OTA_NXP_READY_mutex created, 0x%08x\r\n", CTE_OTA_NXP_READY_mutex);
-
-                if (NULL == CTE_OTA_NXP_READY_mutex) {
-                    PRINTF("\n\n>>> Failed to create CTE_OTA_NXP_READY_mutex mutex !!!\n\n");
-                    return;
-                }
-            }
-
             SetCTESocketConnection();
-        }
-
-        if (CTE_OTA_NXP_READY) {
-            CTEStatusSet(eCTE_Socket_MD);
-
-            xSemaphoreTake(CTE_OTA_NXP_READY_mutex, 300);
-            CTE_OTA_NXP_READY = FALSE;
-            xSemaphoreGive(CTE_OTA_NXP_READY_mutex);
         }
 
         /* loop time delay : 10 msec */
