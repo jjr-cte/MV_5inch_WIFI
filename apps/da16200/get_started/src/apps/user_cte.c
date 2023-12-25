@@ -111,6 +111,22 @@ int atcmd_wifi_ctrl(int argc, char *argv[])
     return err_code;
 }
 
+int atcmd_ctever(int argc, char *argv[])
+{
+    int     err_code = AT_CMD_ERR_CMD_OK_WO_PRINT;
+
+    CTE_DBG("%s()\n", __func__);
+
+    if (argc == 1 || is_correct_query_arg(argc, argv[1])) {
+        PRINTF_ATCMD("\r\n+CTEVER:%s%s\r\n", CTEVER_P, CTEVER_T);
+    }
+    else {
+        err_code = AT_CMD_ERR_TOO_MANY_ARGS;
+    }
+
+    return err_code;
+}
+
 static cte_ota_ctx_t    _cte_ota_ctx;
 
 cte_ota_ctx_t* cte_ota_get_context(void)

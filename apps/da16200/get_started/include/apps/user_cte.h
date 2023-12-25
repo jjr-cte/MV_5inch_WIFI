@@ -46,6 +46,11 @@ extern TaskHandle_t         CTE_OTA_TaskHandler;
 
 extern int atcmd_wifi_ctrl(int argc, char *argv[]);
 
+#define CTEVER_P    "P00"
+#define CTEVER_T    "T00"
+
+extern int atcmd_ctever(int argc, char *argv[]);
+
 #define SCRIPT_ENUM                         \
     ENUM_ENTRY(pNone),                      \
     ENUM_ENTRY(pGetProperty01_1),           \

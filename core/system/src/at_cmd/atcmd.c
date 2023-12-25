@@ -986,6 +986,7 @@ static const command_t commands[] = {
 #endif // __SUPPORT_WIFI_CONCURRENT__
 
   { (char *)"AT+RFCTRL",          atcmd_wifi_ctrl,      1, (char *) "<on_off>",                                   "WiFi RF on/off"                                        },
+  { (char *)"AT+CTEVER",          atcmd_ctever,         1, (char *) "",                                           "CTE Version"                                           },
 
   /* Network Layer Commands ============================================================ */
   { (char *)"AT+NWIP",            atcmd_network,        4, (char *) "<iface>,<ip_addr>,<netmask>,<gw>",           "Setting for IP Address"                                },
