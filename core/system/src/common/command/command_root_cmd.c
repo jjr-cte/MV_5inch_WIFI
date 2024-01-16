@@ -44,6 +44,8 @@
 #include "command_host.h"
 #include "rf_meas_api.h"
 
+#include "user_cte.h"
+
 #ifdef	XIP_CACHE_BOOT  
   #define SUPPORT_ALL_COMMANDS
 #else	//XIP_CACHE_BOOT
@@ -99,7 +101,10 @@ const COMMAND_TREE_TYPE	cmd_root_list[] = {
 { "txpwr_ctl",			CMD_FUNC_NODE,	NULL,			&cmd_txpwr_ctl_same_idx_table,	"txpwr_ctl [set]|[get] [0|1|2|]: Only for FC9060"   },
 #endif	// ! __REDUCE_CODE_SIZE__
 { "ver",				CMD_FUNC_NODE,	NULL,			&version_display, 	"version display "					},
- 
+#ifdef ENABLE_CTE_DBG
+{ "otatype",            CMD_FUNC_NODE,  NULL,           &cmd_ota_type,      "set OTA type : NXP or WiFi"        },
+#endif
+
 #if defined ( __SUPPORT_CONSOLE_PWD__ )
 { "",	CMD_FUNC_NODE,	NULL,		NULL,				""														},
 { "chg_pw",				CMD_FUNC_NODE,	NULL,			&cmd_chg_pw,		"Change password"					},

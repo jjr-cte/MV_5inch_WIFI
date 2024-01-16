@@ -51,6 +51,11 @@ extern int atcmd_wifi_ctrl(int argc, char *argv[]);
 
 extern int atcmd_ctever(int argc, char *argv[]);
 
+extern int atcmd_ota_type(int argc, char *argv[]);
+#ifdef ENABLE_CTE_DBG
+extern void cmd_ota_type(int argc, char *argv[]);
+#endif
+
 #define SCRIPT_ENUM                         \
     ENUM_ENTRY(pNone),                      \
     ENUM_ENTRY(pGetProperty01_1),           \
@@ -147,6 +152,26 @@ typedef enum _ota_packet_type_t {
 
 extern const char *ota_packet_type_str[];
 
+#define OTA_TYPE_NONE   0xFF
+
+#define OTA_TYPE_ENUM   \
+    ENUM_ENTRY(NXP),    \
+    ENUM_ENTRY(WIFI)
+
+#define ENUM_ENTRY(x)   OTA_TYPE_ ## x
+
+typedef enum _ota_type_t {
+    OTA_TYPE_ENUM,
+    NUM_OTA_TYPE
+} ota_type_t;
+
+#undef ENUM_ENTRY
+
+extern const char *ota_type_str[];
+
+extern void ota_type_set(ota_type_t t);
+extern ota_type_t ota_type_get(void);
+
 /*
  *      app         wifi            NXP
  *       | <-     -> | <-         -> |
@@ -173,6 +198,7 @@ extern const char *ota_packet_type_str[];
  */
 typedef struct _ota_packet_t {
     uint8_t     type;
+    uint8_t     ota_type;
 } ota_packet_t;
 
 typedef ota_packet_t        ota_packet_md_t;
@@ -187,7 +213,8 @@ typedef ota_packet_t        ota_packet_fh_t;
  */
 typedef struct _ota_packet_amd_t {
     uint8_t     type;
-    uint8_t     _pad[3];
+    uint8_t     ota_type;
+    uint8_t     _pad[2];
     uint32_t    total_size;
     uint32_t    total_packet;
 } ota_packet_amd_t;
@@ -197,7 +224,8 @@ typedef struct _ota_packet_amd_t {
  */
 typedef struct _ota_packet_rt_t {
     uint8_t     type;
-    uint8_t     _pad[3];
+    uint8_t     ota_type;
+    uint8_t     _pad[2];
     uint32_t    packet_number;
 } ota_packet_rt_t;
 
@@ -206,8 +234,9 @@ typedef struct _ota_packet_rt_t {
  */
 typedef struct _ota_packet_art_t {
     uint8_t     type;
+    uint8_t     ota_type;
     uint8_t     checksum;
-    uint8_t     _pad[2];
+    uint8_t     _pad[1];
     uint32_t    packet_number;
     uint32_t    packet_size;
     uint8_t     payload[OTA_CTE_APP_LEN];
@@ -218,7 +247,8 @@ typedef struct _ota_packet_art_t {
  */
 typedef struct _ota_packet_afh_t {
     uint8_t     type;
-    uint8_t     _pad[3];
+    uint8_t     ota_type;
+    uint8_t     _pad[2];
     uint8_t     md5sum[16];
 } ota_packet_afh_t;
 

@@ -41,6 +41,15 @@ const char *ota_packet_type_str[] = {
 
 #undef ENUM_ENTRY
 
+#define ENUM_ENTRY(x)   "OTA_TYPE_" #x
+
+const char *ota_type_str[] = {
+    OTA_TYPE_ENUM,
+    "invalid"
+};
+
+#undef ENUM_ENTRY
+
 #endif /* ENABLE_CTE_DBG */
 
 TaskHandle_t        CTE_OTA_TaskHandler = NULL;
@@ -126,6 +135,64 @@ int atcmd_ctever(int argc, char *argv[])
 
     return err_code;
 }
+
+static ota_type_t       _ota_type = OTA_TYPE_NONE;
+
+void ota_type_set(ota_type_t t)
+{
+    _ota_type = t;
+}
+
+ota_type_t ota_type_get(void)
+{
+    return _ota_type;
+}
+
+int atcmd_ota_type(int argc, char *argv[])
+{
+    int     err_code = AT_CMD_ERR_CMD_OK;
+
+    CTE_DBG("%s()\n", __func__);
+
+    if (argc != 2) {
+        err_code = AT_CMD_ERR_UNKNOWN;
+    }
+    else {
+        CTE_DBG("argv[1] = %s\n", argv[1]);
+
+        if (0 == strcasecmp(argv[1], "nxp")) {
+            ota_type_set(OTA_TYPE_NXP);
+        }
+        else if (0 == strcasecmp(argv[1], "wifi")) {
+            ota_type_set(OTA_TYPE_WIFI);
+        }
+        else {
+            err_code = AT_CMD_ERR_UNKNOWN;
+        }
+    }
+
+    return err_code;
+}
+
+#ifdef ENABLE_CTE_DBG
+void cmd_ota_type(int argc, char *argv[])
+{
+    if (argc != 2) {
+        PRINTF("usage : %s [nxp/wifi]\n", argv[0]);
+    }
+    else if (0 == strcasecmp(argv[1], "nxp")) {
+        ota_type_set(OTA_TYPE_NXP);
+    }
+    else if (0 == strcasecmp(argv[1], "wifi")) {
+        ota_type_set(OTA_TYPE_WIFI);
+    }
+    else {
+        PRINTF("usage : %s [nxp/wifi]\n", argv[0]);
+    }
+
+    PRINTF("current type : %s\n", ota_type_str[ota_type_get()]);
+}
+#endif
 
 static cte_ota_ctx_t    _cte_ota_ctx;
 

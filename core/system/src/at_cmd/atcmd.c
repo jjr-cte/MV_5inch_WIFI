@@ -366,6 +366,7 @@ void CTESendDataToSocketServer(const void *data, const size_t data_len)
 void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 {
     const ota_packet_type_t     p_type = (ota_packet_type_t) payload[0];
+    const ota_type_t            o_type = (ota_type_t) payload[1];
     const cte_status_t          current_status = CTEStatusGet();
 
     if (current_status != eCTE_Socket_WaitingAck) {
@@ -374,15 +375,17 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
         return;
     }
 
-    if (p_type >= NUM_PTYPE) {
+    if ((p_type >= NUM_PTYPE) || (o_type >= NUM_OTA_TYPE)) {
         CTE_DBG_XXX();
-        CTE_DBG("%s:%d, p_type = %d\n", __func__, __LINE__, p_type);
+        CTE_DBG("%s:%d, p_type = %d, o_type = %d\n", __func__, __LINE__, p_type, o_type);
         memory_dump(payload, 16);
         return;
     }
 
     CTE_DBG_PRINT_TS();
-    CTE_DBG("%s(), p_type = %s\n", __func__, ota_packet_type_str[p_type]);
+    CTE_DBG("%s(), p_type = %s, o_type = %s\n", __func__, ota_packet_type_str[p_type], ota_type_str[o_type]);
+
+    configASSERT(o_type == ota_type_get());
 
     switch (p_type) {
         case OTA_PKT_TYPE_AMD : {
@@ -443,24 +446,29 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 
                 mbedtls_md5_update_ret(&ctx->md5_ctx, p->payload, cur_size);
 
-                cte_ota_queue_elem_t    *e = (cte_ota_queue_elem_t *) pvPortMalloc(sizeof(cte_ota_queue_elem_t));
-                configASSERT(e);
+                if (OTA_TYPE_NXP == o_type) {
+                    cte_ota_queue_elem_t    *e = (cte_ota_queue_elem_t *) pvPortMalloc(sizeof(cte_ota_queue_elem_t));
+                    configASSERT(e);
 
-                e->ptr  = (uint8_t *) pvPortMalloc(cur_size);
-                configASSERT(e->ptr);
-                CTE_DBG("alloc : ptr=0x%08x, size=%d\n", e->ptr, cur_size);
+                    e->ptr  = (uint8_t *) pvPortMalloc(cur_size);
+                    configASSERT(e->ptr);
+                    CTE_DBG("alloc : ptr=0x%08x, size=%d\n", e->ptr, cur_size);
 
-                e->id   = (uint16_t) cur_packet;
-                e->len  = cur_size;
-                e->slot = 0;
+                    e->id   = (uint16_t) cur_packet;
+                    e->len  = cur_size;
+                    e->slot = 0;
 
-                memcpy(e->ptr, p->payload, cur_size);
+                    memcpy(e->ptr, p->payload, cur_size);
 
-                xQueueSend(ctx->q_p, &e, portMAX_DELAY);
+                    xQueueSend(ctx->q_p, &e, portMAX_DELAY);
 
-                CTE_DBG("enqueue, id = %ld, len = %ld, q_len = %ld\n", e->id, e->len, uxQueueMessagesWaiting(ctx->q_p));
+                    CTE_DBG("enqueue, id = %ld, len = %ld, q_len = %ld\n", e->id, e->len, uxQueueMessagesWaiting(ctx->q_p));
 
-//                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+//                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                }
+                else {
+                    configASSERT(0);
+                }
 
                 CTEStatusSet(eCTE_Socket_ART);
             }
@@ -579,9 +587,23 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 {
     static uint32_t         timeout = 0;
     static cte_status_t     StatusPrev = eCTE_Socket_None;
+    ota_type_t              ota_type = ota_type_get();
 
     CTE_DBG_PRINT_TS();
     CTE_DBG("%s(), status = %s\n", __func__, cte_status_str[CTEStatusGet()]);
+
+    switch ((int)ota_type) {
+        case OTA_TYPE_NONE :
+            ota_type_set(OTA_TYPE_NXP);
+            ota_type = OTA_TYPE_NXP;
+            break;
+        case OTA_TYPE_NXP :
+            /* fall through */
+        case OTA_TYPE_WIFI :
+            break;
+        default :
+            configASSERT(0);
+    }
 
     switch(CTEStatusGet())
 	{
@@ -591,6 +613,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             vTaskDelay(200);
 
             p.type = OTA_PKT_TYPE_MD;
+            p.ota_type = ota_type;
             CTESendDataToSocketServer(&p, sizeof(p));
 
             timeout = 0;
@@ -606,6 +629,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             ota_packet_st_t     p;
 
             p.type = OTA_PKT_TYPE_ST;
+            p.ota_type = ota_type;
             CTESendDataToSocketServer(&p, sizeof(p));
 
             timeout = 0;
@@ -616,21 +640,26 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
         case eCTE_Socket_AST:
             atq_result = 0;
 
-            configASSERT(NULL == ctx->q_p);
-            ctx->q_p = xQueueCreate(OTA_CTE_BUFFER_QUEUE_SIZE, sizeof(cte_ota_queue_elem_t *));
+            if (OTA_TYPE_NXP == ota_type) {
+                configASSERT(NULL == ctx->q_p);
+                ctx->q_p = xQueueCreate(OTA_CTE_BUFFER_QUEUE_SIZE, sizeof(cte_ota_queue_elem_t *));
 
-            CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
-            CTE_OTA_NXP_RESET();
+                CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
+                CTE_OTA_NXP_RESET();
 
-            // XXX: how long do we need to wait till NXP boot up ?
-            vTaskDelay(pdMS_TO_TICKS(1000));
+                // XXX: how long do we need to wait till NXP boot up ?
+                vTaskDelay(pdMS_TO_TICKS(1000));
 #if 0
-            UART_deinit(g_ota_mcu_uart_idx);
-            UART_init(g_ota_mcu_uart_idx);
+                UART_deinit(g_ota_mcu_uart_idx);
+                UART_init(g_ota_mcu_uart_idx);
 #endif
-            nxp_script_select(pGetProperty01_1);
+                nxp_script_select(pGetProperty01_1);
 
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            }
+            else {
+                configASSERT(0);
+            }
 
             CTEStatusSet(eCTE_Socket_RT);
             StatusPrev = eCTE_Socket_AST;
@@ -639,6 +668,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             ota_packet_rt_t     p;
 
             p.type = OTA_PKT_TYPE_RT;
+            p.ota_type = ota_type;
             p.packet_number = htonl(ctx->rx_id);
             CTESendDataToSocketServer(&p, sizeof(p));
 
@@ -659,7 +689,9 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 
             if(ctx->rx_id >= ctx->total_packet)
             {
-                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                if (OTA_TYPE_NXP == ota_type) {
+                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                }
 
                 CTEStatusSet(eCTE_Socket_FH);
             }
@@ -675,6 +707,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             ota_packet_rst_t    p;
 
             p.type = OTA_PKT_TYPE_RST;
+            p.ota_type = ota_type;
             CTESendDataToSocketServer(&p, sizeof(p));
 
             timeout = 0;
@@ -683,7 +716,9 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
         }
             break;
         case eCTE_Socket_ARST: {
-            cte_ota_ctx_queue_cleanup(ctx);
+            if (OTA_TYPE_NXP == ota_type) {
+                cte_ota_ctx_queue_cleanup(ctx);
+            }
 
             mbedtls_md5_free(&ctx->md5_ctx);
 
@@ -696,6 +731,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             ota_packet_fh_t     p;
 
             p.type = OTA_PKT_TYPE_FH;
+            p.ota_type = ota_type;
             CTESendDataToSocketServer(&p, sizeof(p));
 
             timeout = 0;
@@ -704,13 +740,15 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
         }
             break;
         case eCTE_Socket_AFH: {
-            cte_ota_ctx_queue_cleanup(ctx);
+            if (OTA_TYPE_NXP == ota_type) {
+                cte_ota_ctx_queue_cleanup(ctx);
 
-            CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
-            CTE_OTA_NXP_RESET();
+                CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
+                CTE_OTA_NXP_RESET();
 
-            CTEStatusSet(eCTE_Socket_Close);
-            StatusPrev = eCTE_Socket_AFH;
+                CTEStatusSet(eCTE_Socket_Close);
+                StatusPrev = eCTE_Socket_AFH;
+            }
         }
             break;
         case eCTE_Socket_NAK:
@@ -987,6 +1025,7 @@ static const command_t commands[] = {
 
   { (char *)"AT+RFCTRL",          atcmd_wifi_ctrl,      1, (char *) "<on_off>",                                   "WiFi RF on/off"                                        },
   { (char *)"AT+CTEVER",          atcmd_ctever,         1, (char *) "",                                           "CTE Version"                                           },
+  { (char *)"AT+OTATYPE",         atcmd_ota_type,       1, (char *) "<nxp wifi>",                                 "OTA on NXP or WiFi"                                        },
 
   /* Network Layer Commands ============================================================ */
   { (char *)"AT+NWIP",            atcmd_network,        4, (char *) "<iface>,<ip_addr>,<netmask>,<gw>",           "Setting for IP Address"                                },
