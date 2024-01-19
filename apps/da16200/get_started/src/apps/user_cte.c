@@ -50,6 +50,15 @@ const char *ota_type_str[] = {
 
 #undef ENUM_ENTRY
 
+#define ENUM_ENTRY(x)   "NXP_CONN_" #x
+
+const char *nxp_conn_status_str[] = {
+    NXP_CONN_ENUM,
+    "invalid"
+};
+
+#undef ENUM_ENTRY
+
 #endif /* ENABLE_CTE_DBG */
 
 TaskHandle_t        CTE_OTA_TaskHandler = NULL;
@@ -132,6 +141,43 @@ int atcmd_ctever(int argc, char *argv[])
     else {
         err_code = AT_CMD_ERR_TOO_MANY_ARGS;
     }
+
+    return err_code;
+}
+
+int atcmd_nxp_conn(int argc, char *argv[])
+{
+    int     err_code = AT_CMD_ERR_CMD_OK_WO_PRINT;
+    cte_ota_ctx_t   *ctx = cte_ota_get_context();
+
+    DA16X_UNUSED_ARG(argc);
+
+    CTE_DBG("%s(), argv[0] = %s\n", __func__, argv[0]);
+    CTE_DBG("conn_status = %s\n", nxp_conn_status_str[ctx->nxp_conn_status]);
+
+    if ((NXP_CONN_ERASE_SENT != ctx->nxp_conn_status) && (NXP_CONN_MD5_SENT != ctx->nxp_conn_status)) {
+        CTE_DBG("wrong nxp_conn_status, status = %s\n", nxp_conn_status_str[ctx->nxp_conn_status]);
+        err_code = AT_CMD_ERR_INSUFFICENT_CONFIG;
+    }
+    else {
+        if (0 == strcasecmp(argv[0] + 3, "ERASEOK")) {
+            ctx->nxp_conn_status = NXP_CONN_ERASE_OK;
+        }
+        else if (0 == strcasecmp(argv[0] + 3, "ERASENG")) {
+            ctx->nxp_conn_status = NXP_CONN_ERASE_NG;
+        }
+        else if (0 == strcasecmp(argv[0] + 3, "MD5OK")) {
+            ctx->nxp_conn_status = NXP_CONN_MD5_OK;
+        }
+        else if (0 == strcasecmp(argv[0] + 3, "MD5NG")) {
+            ctx->nxp_conn_status = NXP_CONN_MD5_NG;
+        }
+        else {
+            configASSERT(0);
+        }
+    }
+
+    CTE_DBG("conn_status = %s\n", nxp_conn_status_str[ctx->nxp_conn_status]);
 
     return err_code;
 }
@@ -247,10 +293,13 @@ void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n)
 }
 
 typedef enum _nxp_ota_cmd_t {
+#if 0
     NXP_OTA_COMMAND,
+#endif
     NXP_OTA_DATAPAYLOAD,
 } nxp_ota_cmd_t;
 
+#if 0
 typedef enum _nxp_ota_cmd_sub_t {
     NXP_OTA_SUB_FLASH_ERASE,
     NXP_OTA_SUB_FILL_MEMORY,
@@ -258,6 +307,7 @@ typedef enum _nxp_ota_cmd_sub_t {
     NXP_OTA_SUB_GET_PROPERTY,
     NXP_OTA_SUB_WRITE_MEMORY,
 } nxp_ota_cmd_sub_t;
+#endif
 
 typedef struct _nxp_ota_cmd_pair_t {
     const uint8_t   *data;
@@ -265,16 +315,19 @@ typedef struct _nxp_ota_cmd_pair_t {
 } nxp_ota_cmd_pair_t;
 
 static const nxp_ota_cmd_pair_t nxp_ota_cmd_pair[] = {
+#if 0
     [ NXP_OTA_COMMAND ] = {
             .data   = (const uint8_t[]) { 0x5a, 0xa4 },
             .length = 2
         },
+#endif
     [ NXP_OTA_DATAPAYLOAD ] = {
             .data   = (const uint8_t[]) { 0x5a, 0xa5 },
             .length = 2
         },
 };
 
+#if 0
 static const nxp_ota_cmd_pair_t nxp_ota_cmd_sub_pair[] = {
     [ NXP_OTA_SUB_FLASH_ERASE ] = {
             .data   = (const uint8_t[]) { 0x02, 0x00, 0x00, 0x03 },
@@ -297,6 +350,7 @@ static const nxp_ota_cmd_pair_t nxp_ota_cmd_sub_pair[] = {
             .length = 4
         },
 };
+#endif
 
 uint16_t nxp_ota_msg_calc_crc16(const uint8_t *payload, const uint16_t length)
 {
@@ -313,6 +367,7 @@ uint16_t nxp_ota_msg_calc_crc16(const uint8_t *payload, const uint16_t length)
     return crc;
 }
 
+#if 0
 /*
  *   t->length
  *    |
@@ -550,6 +605,7 @@ static uint16_t nxp_ota_msg_write_memory(uint8_t *payload, const uint32_t starta
 
     return payload_length;
 }
+#endif /* #if 0 */
 
 /*
  *   t->length
@@ -634,6 +690,7 @@ void nxp_ota_slot_write(cte_ota_ctx_t *ctx)
 
     if ((ctx->total_packet == ((uint32_t) e->id + 1)) && (remainings <= OTA_CTE_NXP_LEN)) {
         CTE_DBG("firmware finished\n");
+        ctx->nxp_conn_status = NXP_CONN_BLOCK_DONE;
         xTaskNotifyGive(CTE_OTA_TaskHandler);
     }
 }
@@ -665,6 +722,7 @@ void nxp_load_fw(cte_ota_script_t script_name)
     p_script_name = script_name;
     switch (script_name)
     {
+#if 0
         case pFLASHLOADER:
             CTE_DBG("flashloader, segment 0\n");
             NXP_OTA_UART_WRITE(NXP_RT1176_IVT[0]);
@@ -673,6 +731,7 @@ void nxp_load_fw(cte_ota_script_t script_name)
             CTE_DBG("config, segment 0\n");
             nxp_ota_msg_data_payload((uint8_t *)NXP_RT1176_CONFIG[0], sizeof(NXP_RT1176_CONFIG[0]));
             break;
+#endif
         case pFWPACKAGE: {
             CTE_DBG("firmware, segment 0\n");
             nxp_ota_slot_write(cte_ota_get_context());
@@ -763,8 +822,14 @@ UINT nxpcmd_parser(char *in_buf)
     const uint8_t _5AA15AA4[]                   = {0x5a, 0xa1, 0x5a, 0xa4};
     const uint8_t NXP_Ack[]                     = {0x5a, 0xa1};
     const uint8_t NXP_Nak[]                     = {0x5a, 0xa2};
-    const uint8_t NXP_AckAbort[]                = {0x5a, 0xa3};
+    const uint8_t NXP_CRC[]                     = {0x5a, 0xa3};
+    const uint8_t NXP_N_RCV[]                   = {0x5a, 0xfe};
+    const uint8_t NXP_STOP[]                    = {0x5a, 0xff};
+
+#if 0
     const uint8_t NXP_PingResponse[]            = {0x5a, 0xa7};
+#endif
+
 #if 0
     /*
      *                                                        | len (16b) | CRC (16b) | payload            4                       8                      12                      16
@@ -782,6 +847,7 @@ UINT nxpcmd_parser(char *in_buf)
 
     cte_ota_ctx_t   *ctx = cte_ota_get_context();
 
+#if 0
     /* OCRAM (OnChip RAM)   region 0x2020_0000 - 0x2023_FFFF (256 KB) */
     /* FlexSPI1             region 0x3000_0000 - 0x3FFF_FFFF (256 MB) */
     const uint32_t  config_saddr        = 0x20202000;
@@ -796,11 +862,13 @@ UINT nxpcmd_parser(char *in_buf)
     uint32_t        flash_write_length  = ctx->total_size;
 
     const uint32_t  memoryid            = 0x0;
+#endif /* #if 0 */
 
     CTE_DBG_PRINT_TS();
     CTE_DBG("<- NXP\n");
     memory_dump(in_buf, 16);
 
+#if 0
     if (memcmp(in_buf, NXP_PingResponse, sizeof(NXP_PingResponse)) == 0)
     {
         uint8_t     payload[32];
@@ -853,12 +921,15 @@ UINT nxpcmd_parser(char *in_buf)
 
         NXP_OTA_UART_WRITE_N(payload, payload_length);
     }
-    else if (memcmp(in_buf, _5AA15AA4, sizeof(_5AA15AA4)) == 0)
+    else
+#endif /* #if 0 */
+    if (memcmp(in_buf, _5AA15AA4, sizeof(_5AA15AA4)) == 0)
     {
         NXP_OTA_UART_WRITE(NXP_Ack);
 
         switch (p_script_name)
         {
+#if 0
             case pGetProperty01_1:          nxp_load_fw(pFLASHLOADER);                      break;
             case pGetProperty01_2:          nxp_script_select(pFillMemory1);                break;
             case pFillMemory1:              nxp_script_select(pFillMemory2);                break;
@@ -869,8 +940,10 @@ UINT nxpcmd_parser(char *in_buf)
             case pConfigureMemoryCode:      nxp_script_select(pGetPropertyCode);            break;
             case pGetPropertyCode:          nxp_script_select(pWriteMemoryCode);            break;
             case pWriteMemoryCode:          nxp_load_fw(pFWCONFIG);                         break;
+#endif
             case pFWPACKAGE:
                 CTE_DBG("%s:%d, firmware finished\n", __func__, __LINE__);
+                xTaskNotifyGive(CTE_OTA_TaskHandler);
                 break;
             default :
                 CTE_DBG_XXX();
@@ -881,6 +954,7 @@ UINT nxpcmd_parser(char *in_buf)
     {
         switch (p_script_name)
         {
+#if 0
             case pFLASHLOADER:
             {
                 static uint32_t     idx = 0;
@@ -927,11 +1001,17 @@ UINT nxpcmd_parser(char *in_buf)
                 }
             }
             break;
+#endif /* #if 0 */
 
             case pFWPACKAGE:
             {
+                if (NXP_CONN_BREAK == ctx->nxp_conn_status)
+                    break;
+
                 nxp_ota_slot_inc(ctx);
-                nxp_ota_slot_write(ctx);
+
+                if (NXP_CONN_BLOCK_DONE != ctx->nxp_conn_status)
+                    nxp_ota_slot_write(ctx);
             }
             break;
 
@@ -951,9 +1031,28 @@ UINT nxpcmd_parser(char *in_buf)
             configASSERT(0);
         }
     }
-    else if (memcmp(in_buf, NXP_AckAbort, sizeof(NXP_AckAbort)) == 0) {
-        CTE_DBG("AckAbort\n");
-        configASSERT(0);
+    else if (memcmp(in_buf, NXP_CRC, sizeof(NXP_CRC)) == 0) {
+        CTE_DBG(RED_COLOR "CRC error\n" CLEAR_COLOR);
+
+        if (pFWPACKAGE == p_script_name) {
+            nxp_ota_slot_write(ctx);
+        }
+        else {
+            configASSERT(0);
+        }
+    }
+    else if (memcmp(in_buf, NXP_N_RCV, sizeof(NXP_N_RCV)) == 0) {
+        CTE_DBG(RED_COLOR "NXP not received\n" CLEAR_COLOR);
+
+        if (pFWPACKAGE == p_script_name) {
+            nxp_ota_slot_write(ctx);
+        }
+        else {
+            configASSERT(0);
+        }
+    }
+    else if (memcmp(in_buf, NXP_STOP, sizeof(NXP_STOP)) == 0) {
+        CTE_DBG(RED_COLOR "NXP stopped\n" CLEAR_COLOR);
     }
     else {
         CTE_DBG_XXX();

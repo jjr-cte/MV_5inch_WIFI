@@ -57,6 +57,8 @@ extern int atcmd_ota_type(int argc, char *argv[]);
 extern void cmd_ota_type(int argc, char *argv[]);
 #endif
 
+extern int atcmd_nxp_conn(int argc, char *argv[]);
+
 #define SCRIPT_ENUM                         \
     ENUM_ENTRY(pNone),                      \
     ENUM_ENTRY(pGetProperty01_1),           \
@@ -170,6 +172,28 @@ typedef enum _ota_type_t {
 
 extern const char *ota_type_str[];
 
+#define NXP_CONN_ENUM       \
+    ENUM_ENTRY(NONE),       \
+    ENUM_ENTRY(ERASE_SENT), \
+    ENUM_ENTRY(ERASE_OK),   \
+    ENUM_ENTRY(ERASE_NG),   \
+    ENUM_ENTRY(MD5_SENT),   \
+    ENUM_ENTRY(MD5_OK),     \
+    ENUM_ENTRY(MD5_NG),     \
+    ENUM_ENTRY(BLOCK_DONE), \
+    ENUM_ENTRY(BREAK)
+
+#define ENUM_ENTRY(x)       NXP_CONN_ ## x
+
+typedef enum _nxp_conn_status_t {
+    NXP_CONN_ENUM,
+    NUM_NXP_CONN
+} nxp_conn_status_t;
+
+extern const char *nxp_conn_status_str[];
+
+#undef ENUM_ENTRY
+
 extern void ota_type_set(ota_type_t t);
 extern ota_type_t ota_type_get(void);
 
@@ -179,10 +203,10 @@ extern ota_type_t ota_type_get(void);
  *            ^              ^
  *     OTA_CTE_APP_LEN  OTA_CTE_NXP_LEN
  */
-#define OTA_CTE_NXP_LEN             512         /* defined by NXP */
-#define OTA_CTE_NXP_PKTS            16
+#define OTA_CTE_NXP_LEN             1024
+#define OTA_CTE_NXP_PKTS            8
 #define OTA_CTE_APP_LEN             (OTA_CTE_NXP_LEN * OTA_CTE_NXP_PKTS)
-#define OTA_CTE_BUFFER_QUEUE_SIZE   32
+#define OTA_CTE_BUFFER_QUEUE_SIZE   4
 
 /* confirmed with app provider */
 #if OTA_CTE_APP_LEN != 8192
@@ -268,6 +292,7 @@ typedef struct _cte_ota_ctx_t {
     uint32_t    total_packet;
     uint16_t    rx_id;
     uint8_t     retx_cnt;
+    uint8_t     nxp_conn_status;
     QueueHandle_t           q_p;
     cte_ota_queue_elem_t    *e_working;
     mbedtls_md5_context     md5_ctx;
@@ -285,4 +310,5 @@ extern int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx
 
 extern void generate_crc_table(void);
 
+extern void nxp_load_fw(cte_ota_script_t script_name);
 extern UINT nxpcmd_parser(char *in_buf);
