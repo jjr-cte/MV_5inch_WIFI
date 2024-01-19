@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common_def.h"
+#include "atcmd_tcp_server.h"
 
 #include "mbedtls/md5.h"
 
@@ -278,9 +279,9 @@ extern void CTEStatusSet(const cte_status_t status);
 extern cte_status_t CTEStatusGet(void);
 extern void SetCTESocketConnection(void);
 extern void SetCTESocketDisconnection(void);
-extern void CTESendDataToSocketServer(const void *data, const size_t data_len);
+extern void CTESendDataToSocketServer(atcmd_tcps_cli_context *cli_ctx, const void *data, const size_t data_len);
 extern void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload);
-extern int CTESocketCtrlFlow(cte_ota_ctx_t *ctx);
+extern int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx);
 
 extern void generate_crc_table(void);
 

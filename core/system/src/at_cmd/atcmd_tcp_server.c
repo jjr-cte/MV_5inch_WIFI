@@ -1569,7 +1569,7 @@ static void atcmd_tcps_cli_task_entry(void *param)
             CTEGetSocketServerData(cte_ota_ctx, payload);
         }
 
-        if (CTESocketCtrlFlow(cte_ota_ctx) < 0) {
+        if (CTESocketCtrlFlow(cte_ota_ctx, cli_ctx) < 0) {
             cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
         }
 

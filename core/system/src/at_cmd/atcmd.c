@@ -330,36 +330,23 @@ void SetCTESocketDisconnection(void)
     CTE_OTA_TaskHandler = NULL;
 }
 
-void CTESendDataToSocketServer(const void *data, const size_t data_len)
+void CTESendDataToSocketServer(atcmd_tcps_cli_context *cli_ctx, const void *data, const size_t data_len)
 {
     CTE_DBG_PRINT_TS();
     CTE_DBG("%s()\n", __func__);
 
-    for (int i = 0; i < (int)atcmd_transport_get_max_cid(); i++)
-    {
-        atcmd_sess_context      *ctx = atcmd_transport_find_context(i);
+    int     ret = send(cli_ctx->socket, data, data_len, 0);
 
-        if (ctx != NULL)
-        {
-            atcmd_tcps_cli_context  *cli_ctx = ctx->ctx.tcps->cli_ctx;
-
-            if ((ctx->type == ATCMD_SESS_TCP_SERVER) && (cli_ctx->state == ATCMD_TCPS_CLI_STATE_CONNECTED))
-            {
-                int     ret = send(cli_ctx->socket, data, data_len, 0);
-
-                if (ret <= 0) {
-                    ATCMD_DBG("Failed to send tcp data to tcp client(%d,%d.%d.%d.%d:%d)\n", ret,
-                            (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
-                            (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 16) & 0xFF,
-                            (ntohl(cli_ctx->addr.sin_addr.s_addr) >>  8) & 0xFF,
-                            (ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
-                            (ntohs(cli_ctx->addr.sin_port)));
-                }
-                else {
-                    memory_dump(data, data_len);
-                }
-            }
-        }
+    if (ret <= 0) {
+        CTE_DBG("Failed to send tcp data to tcp client(%d,%d.%d.%d.%d:%d)\n", ret,
+                (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
+                (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 16) & 0xFF,
+                (ntohl(cli_ctx->addr.sin_addr.s_addr) >>  8) & 0xFF,
+                (ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
+                (ntohs(cli_ctx->addr.sin_port)));
+    }
+    else {
+        memory_dump(data, data_len);
     }
 }
 
@@ -607,7 +594,7 @@ void cte_ota_ctx_queue_cleanup(cte_ota_ctx_t *ctx)
  * under AT-CMD-TCPC task, priority OS_TASK_PRIORITY_USER + 7
  * call path : atcmd_tcpc_task_entry() -> CTESocketCtrlFlow()
  */
-int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
+int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
 {
     static uint32_t         timeout = 0;
     static cte_status_t     StatusPrev = eCTE_Socket_None;
@@ -638,7 +625,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 
             p.type = OTA_PKT_TYPE_MD;
             p.ota_type = ota_type;
-            CTESendDataToSocketServer(&p, sizeof(p));
+            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
 
             timeout = 0;
             CTEStatusSet(eCTE_Socket_WaitingAck);
@@ -654,7 +641,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 
             p.type = OTA_PKT_TYPE_ST;
             p.ota_type = ota_type;
-            CTESendDataToSocketServer(&p, sizeof(p));
+            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
 
             timeout = 0;
             CTEStatusSet(eCTE_Socket_WaitingAck);
@@ -697,7 +684,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             p.type = OTA_PKT_TYPE_RT;
             p.ota_type = ota_type;
             p.packet_number = htonl(ctx->rx_id);
-            CTESendDataToSocketServer(&p, sizeof(p));
+            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
 
             timeout = 0;
             CTEStatusSet(eCTE_Socket_WaitingAck);
@@ -735,7 +722,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 
             p.type = OTA_PKT_TYPE_RST;
             p.ota_type = ota_type;
-            CTESendDataToSocketServer(&p, sizeof(p));
+            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
 
             timeout = 0;
             CTEStatusSet(eCTE_Socket_WaitingAck);
@@ -762,7 +749,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 
             p.type = OTA_PKT_TYPE_FH;
             p.ota_type = ota_type;
-            CTESendDataToSocketServer(&p, sizeof(p));
+            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
 
             timeout = 0;
             CTEStatusSet(eCTE_Socket_WaitingAck);
