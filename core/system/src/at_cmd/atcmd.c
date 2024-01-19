@@ -79,7 +79,7 @@ typedef struct _list_node {
     struct _list_node *pnext;
 } list_node;
 
-
+ota_update_sflash_t DA16200MOD_fw_write;
 
 /**************************************************************************
  * Global Variables
@@ -395,6 +395,9 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 
             if ((0xFFFFFFFF == ctx->total_size) && (0xFFFFFFFF == ctx->total_packet)) {
                 memset(ctx, 0, sizeof(*ctx));
+                if (OTA_TYPE_WIFI == o_type) {
+                    memset(&DA16200MOD_fw_write, 0, sizeof(ota_update_sflash_t));
+                }
             }
             else {
                 CTE_DBG_XXX();
@@ -407,6 +410,13 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 
             CTE_DBG("AMD : total_size = 0x%08X (%ld), total_packet = 0x%04X (%ld)\n", ctx->total_size, ctx->total_size, ctx->total_packet, ctx->total_packet);
 
+            if (OTA_TYPE_WIFI == o_type) {
+                int         boot_index = get_cur_boot_index();
+                uint32_t    boot_addr = boot_index ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
+
+            	DA16200MOD_fw_write.total_length = ctx->total_size;
+            	DA16200MOD_fw_write.sflash_addr = boot_addr;
+            }
             CTEStatusSet(eCTE_Socket_AMD);
         }
             break;
@@ -465,6 +475,20 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
                     CTE_DBG("enqueue, id = %ld, len = %ld, q_len = %ld\n", e->id, e->len, uxQueueMessagesWaiting(ctx->q_p));
 
 //                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+                }
+                else if (OTA_TYPE_WIFI == o_type) {
+                    uint8_t         *ptr = p->payload;
+                    size_t          remain = cur_size;
+
+                    do {
+                        size_t      len = configMIN(remain, OTA_SFLASH_BUF_SZ);
+
+                        CTE_DBG("write flash addr = 0x%08x, length = %ld\n", ptr, len);
+                        ota_update_write_sflash(&DA16200MOD_fw_write, ptr, len);
+
+                        ptr += len;
+                        remain -= len;
+                    } while (remain > 0);
                 }
                 else {
                     configASSERT(0);
@@ -657,6 +681,9 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             }
+            else if (OTA_TYPE_WIFI == ota_type) {
+                ;
+            }
             else {
                 configASSERT(0);
             }
@@ -723,6 +750,9 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
             mbedtls_md5_free(&ctx->md5_ctx);
 
             memset(ctx, 0, sizeof(*ctx));
+            if (OTA_TYPE_WIFI == ota_type) {
+                memset(&DA16200MOD_fw_write, 0, sizeof(ota_update_sflash_t));
+            }
 
             CTEStatusSet(eCTE_Socket_MD);
         }
@@ -745,6 +775,42 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx)
 
                 CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
                 CTE_OTA_NXP_RESET();
+
+                CTEStatusSet(eCTE_Socket_Close);
+                StatusPrev = eCTE_Socket_AFH;
+            }
+            else if (OTA_TYPE_WIFI == ota_type) {
+                int         boot_index = get_cur_boot_index();
+                uint32_t    boot_addr = boot_index ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
+
+                if (ota_update_sflash_crc(boot_addr) > 0) {
+                    UINT    len = 80;
+                    UCHAR   *rd_buf = (UCHAR *) pvPortMalloc(len);
+
+                    configASSERT(rd_buf);
+
+                    if (!ota_update_read_flash(boot_addr, rd_buf, len)) {
+                        if (!ota_update_check_version(OTA_TYPE_RTOS, rd_buf, len)) {
+                            memset(&DA16200MOD_fw_write, 0, sizeof(ota_update_sflash_t));
+                            ota_update_toggle_boot_index();
+                            reboot_func(SYS_REBOOT_POR);
+                        }
+                        else {
+                            CTE_DBG_XXX();
+                            CTE_DBG("OTA WiFi firmware update failed\n");
+                        }
+                    }
+                    else {
+                        CTE_DBG_XXX();
+                        CTE_DBG("OTA WiFi read flash failed\n");
+                    }
+
+                    vPortFree(rd_buf);
+                }
+                else {
+                    CTE_DBG_XXX();
+                    CTE_DBG("OTA WiFi CRC failed\n");
+                }
 
                 CTEStatusSet(eCTE_Socket_Close);
                 StatusPrev = eCTE_Socket_AFH;
