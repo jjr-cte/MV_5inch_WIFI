@@ -247,6 +247,26 @@ cte_ota_ctx_t* cte_ota_get_context(void)
     return &_cte_ota_ctx;
 }
 
+int is_valid_socket_data(const ota_packet_type_t p_type, const int len)
+{
+    if ((p_type == OTA_PKT_TYPE_AMD)  && (len == sizeof(ota_packet_amd_t)))
+        return TRUE;
+
+    if ((p_type == OTA_PKT_TYPE_AST)  && (len == sizeof(ota_packet_ast_t)))
+        return TRUE;
+
+    if ((p_type == OTA_PKT_TYPE_ART)  && (len == sizeof(ota_packet_art_t)))
+        return TRUE;
+
+    if ((p_type == OTA_PKT_TYPE_ARST) && (len == sizeof(ota_packet_arst_t)))
+        return TRUE;
+
+    if ((p_type == OTA_PKT_TYPE_AFH)  && (len == sizeof(ota_packet_afh_t)))
+        return TRUE;
+
+    return FALSE;
+}
+
 #define XMODEM_POLY     0x1021
 #define CRC_TABLE_SIZE  256
 

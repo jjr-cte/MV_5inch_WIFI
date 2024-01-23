@@ -1550,6 +1550,13 @@ static void atcmd_tcps_cli_task_entry(void *param)
 
 	cli_ctx->state = ATCMD_TCPS_CLI_STATE_CONNECTED;
 
+	size_t      pkt_art_sz = sizeof(ota_packet_art_t);
+	size_t      reasm_buf_len = pkt_art_sz * 4;
+    uint8_t     *reasm_buf = (uint8_t *) pvPortMalloc(reasm_buf_len);
+    size_t      reasm_len = 0;
+
+    configASSERT(reasm_buf);
+
 	while (cli_ctx->state == ATCMD_TCPS_CLI_STATE_CONNECTED) {
 		memset(cli_ctx->buffer, 0x00, cli_ctx->buffer_len);
 
@@ -1566,11 +1573,69 @@ static void atcmd_tcps_cli_task_entry(void *param)
 		ret = recv(cli_ctx->socket, payload, payload_len, 0);
 
         if (ret > 0) {
-            CTEGetSocketServerData(cte_ota_ctx, payload);
+            const ota_packet_type_t     p_type = (ota_packet_type_t) payload[0];
+            int                         passthru = 0;
+
+            if (is_valid_socket_data(p_type, ret)) {
+                passthru = 1;
+            }
+            else if (p_type == OTA_PKT_TYPE_ART) {
+                ota_packet_art_t    *p = (ota_packet_art_t *) payload;
+                uint16_t            cur_size = (uint16_t) ntohl(p->packet_size);
+
+                if (cur_size == (ret - (sizeof(ota_packet_art_t) - OTA_CTE_APP_LEN))) {
+                    /* most likely this is the final data packet */
+                    passthru = 1;
+                }
+                else {
+                    /* truncated data packet, head part */
+                    passthru = 0;
+                }
+            }
+            else {
+                /* truncated data packet, middle & tail part */
+                passthru = 0;
+            }
+
+            if (passthru == 1) {
+                if (0 != reasm_len) {
+                    CTE_DBG(CYAN_COLOR "truncated reset, reasm_len = %d, recvd = %d, p_type = %d\n" CLEAR_COLOR, reasm_len, ret, p_type);
+
+                    reasm_len = 0;
+                    continue;
+                }
+
+                CTEGetSocketServerData(cte_ota_ctx, payload);
+            }
+            else {
+                CTE_DBG(CYAN_COLOR "truncated, reasm_len = %ld, recvd = %d\n" CLEAR_COLOR, reasm_len, ret);
+
+                configASSERT((reasm_len + ret) <= reasm_buf_len);
+
+                if ((reasm_len + ret) <= reasm_buf_len) {
+                    memcpy(reasm_buf + reasm_len, payload, ret);
+                    reasm_len += ret;
+                }
+
+                while (reasm_len >= pkt_art_sz) {
+                    CTE_DBG(CYAN_COLOR "reassembling, reasm_len = %ld, sz = %ld\n" CLEAR_COLOR, reasm_len, pkt_art_sz);
+
+                    CTEGetSocketServerData(cte_ota_ctx, reasm_buf);
+
+                    reasm_len -= pkt_art_sz;
+                    memcpy(reasm_buf, reasm_buf + pkt_art_sz, reasm_len);
+
+                    if (CTESocketCtrlFlow(cte_ota_ctx, cli_ctx) < 0) {
+                        cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
+                    }
+                }
+            }
         }
 
-        if (CTESocketCtrlFlow(cte_ota_ctx, cli_ctx) < 0) {
-            cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
+        if (cli_ctx->state != ATCMD_TCPS_CLI_STATE_REQ_TERMINATE) {
+            if (CTESocketCtrlFlow(cte_ota_ctx, cli_ctx) < 0) {
+                cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
+            }
         }
 
 		dpm_app_sleep_ready_clear((char *)(cli_ctx->task_name));
@@ -1666,6 +1731,8 @@ static void atcmd_tcps_cli_task_entry(void *param)
 			dpm_app_sleep_ready_set((char *)(cli_ctx->task_name));
 		}
 	}
+
+	vPortFree(reasm_buf);
 
 end:
 

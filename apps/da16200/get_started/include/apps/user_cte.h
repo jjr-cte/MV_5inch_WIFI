@@ -300,6 +300,8 @@ typedef struct _cte_ota_ctx_t {
 
 extern cte_ota_ctx_t* cte_ota_get_context(void);
 
+extern int is_valid_socket_data(const ota_packet_type_t p_type, const int len);
+
 extern void CTEStatusSet(const cte_status_t status);
 extern cte_status_t CTEStatusGet(void);
 extern void SetCTESocketConnection(void);
