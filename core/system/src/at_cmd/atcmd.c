@@ -763,16 +763,8 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
             CTE_DBG("CSH: eCTE_Socket_ART, PacketCnt: %d\n", ctx->rx_id);
             break;
         case eCTE_Socket_RST: {
-            ota_packet_rst_t    p;
-
-            p.type = OTA_PKT_TYPE_RST;
-            p.ota_type = ota_type;
-            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
-            _pkt_exp = OTA_PKT_TYPE_ARST;
-
-            timeout = 0;
-            CTEStatusSet(eCTE_Socket_WaitingAck);
-            StatusPrev = eCTE_Socket_RST;
+            /* we (CTE & e-Novia) agree that RST procedure is not necessary */
+            CTEStatusSet(eCTE_Socket_ARST);
         }
             break;
         case eCTE_Socket_ARST: {
@@ -787,7 +779,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
                 memset(&DA16200MOD_fw_write, 0, sizeof(ota_update_sflash_t));
             }
 
-            CTEStatusSet(eCTE_Socket_MD);
+            CTEStatusSet(eCTE_Socket_Close);
         }
             break;
         case eCTE_Socket_FH: {
