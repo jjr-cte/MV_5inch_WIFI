@@ -852,6 +852,44 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
             vTaskDelay(pdMS_TO_TICKS(100));
 
             switch (StatusPrev) {
+                /*
+                 * similar timeout handling
+                 * the only difference is that RST max retx -> close
+                 *                             others -> RST
+                 */
+                case eCTE_Socket_MD :
+                case eCTE_Socket_ST :
+                case eCTE_Socket_RT :
+                case eCTE_Socket_RST :
+                case eCTE_Socket_FH :
+                {
+                    if (timeout++ > CTE_OTA_TIMEOUT) {
+                        timeout = 0;
+                        ctx->retx_cnt++;
+
+                        CTE_DBG("WaitingAck (%s), timeout = %d\n", cte_status_str[StatusPrev], CTE_OTA_TIMEOUT);
+
+                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
+                            ctx->retx_cnt = 0;
+
+                            cte_status_t    next;
+
+                            if (eCTE_Socket_RST != StatusPrev)
+                                next = eCTE_Socket_RST;
+                            else
+                                next = eCTE_Socket_Close;
+
+                            CTEStatusSet(next);
+                            CTE_DBG("%s -> %s, retx exceeded %d\n", cte_status_str[StatusPrev], cte_status_str[next], CTE_OTA_RETX_MAX);
+                        }
+                        else {
+                            CTEStatusSet(StatusPrev);
+                            CTE_DBG("%s retx = %d\n", cte_status_str[StatusPrev], ctx->retx_cnt);
+                        }
+                    }
+                }
+                    break;
+
                 case eCTE_Socket_AMD : {
                     switch (ctx->nxp_conn_status) {
                         case NXP_CONN_ERASE_SENT :
@@ -867,68 +905,6 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
                         default :
                             configASSERT(0);
                             break;
-                    }
-                }
-                    break;
-
-                case eCTE_Socket_ST : {
-                    // it might take a few second to erase a flash, so wait for it
-                    if (timeout++ > CTE_OTA_TIMEOUT_ST) {
-                        timeout = 0;
-                        ctx->retx_cnt++;
-
-                        CTE_DBG("eCTE_Socket_WaitingAck (ST) timeout, timeout = %d\n", CTE_OTA_TIMEOUT_ST);
-
-                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
-                            ctx->retx_cnt = 0;
-                            CTEStatusSet(eCTE_Socket_RST);
-                            CTE_DBG("eCTE_Socket_ST -> eCTE_Socket_RST, retx exceeded %d\n", CTE_OTA_RETX_MAX);
-                        }
-                        else {
-                            CTEStatusSet(StatusPrev);
-                            CTE_DBG("eCTE_Socket_ST retx = %d\n", ctx->retx_cnt);
-                        }
-                    }
-                }
-                    break;
-
-                case eCTE_Socket_RT : {
-                    // for data packet, 500ms is too long
-                    if (timeout++ > CTE_OTA_TIMEOUT_RT) {
-                        timeout = 0;
-                        ctx->retx_cnt++;
-
-                        CTE_DBG("eCTE_Socket_WaitingAck (RT) timeout, rx_id = %ld, timeout = %d\n", ctx->rx_id, CTE_OTA_TIMEOUT_RT);
-
-                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
-                            ctx->retx_cnt = 0;
-                            CTEStatusSet(eCTE_Socket_RST);
-                            CTE_DBG("eCTE_Socket_RT -> eCTE_Socket_RST, retx exceeded %d\n", CTE_OTA_RETX_MAX);
-                        }
-                        else {
-                            CTEStatusSet(StatusPrev);
-                            CTE_DBG("eCTE_Socket_RT retx = %d\n", ctx->retx_cnt);
-                        }
-                    }
-                }
-                    break;
-
-                case eCTE_Socket_RST : {
-                    if (timeout++ > CTE_OTA_TIMEOUT_RST) {
-                        timeout = 0;
-                        ctx->retx_cnt++;
-
-                        CTE_DBG("eCTE_Socket_WaitingAck (RST) timeout, timeout = %d\n", CTE_OTA_TIMEOUT_RST);
-
-                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
-                            ctx->retx_cnt = 0;
-                            CTEStatusSet(eCTE_Socket_Close);
-                            CTE_DBG("eCTE_Socket_RT -> eCTE_Socket_RST, retx exceeded %d\n", CTE_OTA_RETX_MAX);
-                        }
-                        else {
-                            CTEStatusSet(StatusPrev);
-                            CTE_DBG("eCTE_Socket_RST retx = %d\n", ctx->retx_cnt);
-                        }
                     }
                 }
                     break;

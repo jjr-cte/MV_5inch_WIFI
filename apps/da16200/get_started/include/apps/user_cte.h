@@ -128,9 +128,7 @@ extern void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n);
     } while (0)
 
 #define CTE_OTA_RETX_MAX        3
-#define CTE_OTA_TIMEOUT_ST      30      // 3000 ms
-#define CTE_OTA_TIMEOUT_RT      5       // 500 ms
-#define CTE_OTA_TIMEOUT_RST     5       // 500 ms
+#define CTE_OTA_TIMEOUT         5       // 500 ms
 
 #define PTYPE_ENUM      \
     ENUM_ENTRY(MD),     \
