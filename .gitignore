@@ -5,7 +5,3 @@ docs/
 **/.settings/
 **/Debug/
 **/Release/
-
-# Eclipse
-.cproject
-.project
