@@ -730,7 +730,7 @@
     // User application for "Provisioning" operation
     //   which is matched with DA16200 Mobile-APP.
     //
-    #define __SUPPORT_WIFI_PROVISIONING__
+    #undef __SUPPORT_WIFI_PROVISIONING__
 
     //
     // User Application for "Hello-World" task.
