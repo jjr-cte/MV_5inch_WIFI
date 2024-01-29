@@ -31,6 +31,7 @@
  */
 
 #include "user_command.h"
+#include "common_config.h"
 
 
 #include "assert.h"
@@ -114,6 +115,7 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
   { "coap_client", CMD_FUNC_NODE,  NULL,          &cmd_coap_client, "CoAP Client"                      },
 #endif /* __COAP_CLIENT_SAMPLE__ */
   { "utxpwr",      CMD_FUNC_NODE,  NULL,          &cmd_txpwr,       "testcmd [option]"                 },
+  { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"},
 
   { NULL, CMD_NULL_NODE,  NULL, NULL, NULL         }    // Tail
 };
@@ -205,5 +207,21 @@ void cmd_coap_client(int argc, char *argv[])
     return;
 }
 #endif /* __COAP_CLIENT_SAMPLE__ */
+
+
+void cmd_defaultAPconfig(int argc, char *argv[])
+{
+	DA16X_UNUSED_ARG(argc);
+	DA16X_UNUSED_ARG(argv);
+
+	if (da16x_set_default_ap_config() == CC_SUCCESS)
+	{
+		PRINTF("OK\n");
+	}
+	else
+	{
+		PRINTF("failed\n");
+	}
+}
 
 /* EOF */

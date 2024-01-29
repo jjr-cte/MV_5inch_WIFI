@@ -50,6 +50,7 @@ extern void cmd_test(int argc, char *argv[]);
 extern void cmd_coap_client(int argc, char *argv[]);
 #endif /* __COAP_CLIENT_SAMPLE__ */
 extern void cmd_txpwr(int argc, char *argv[]);
+extern void cmd_defaultAPconfig(int argc, char *argv[]);
 
 #endif /* __USER_COMMAND_H__ */
 
