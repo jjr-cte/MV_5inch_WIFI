@@ -543,6 +543,10 @@ void system_start(void)
     /* Start system applications for DA16XXX */
     start_sys_apps();
 
+    // dust.240129: 啟動後就關掉WIFI RF
+    PRINTF("turn off RF on startup\n");
+    wifi_cs_rf_cntrl(1);
+
     /*
      * Entry point of user's applications
      *     : defined in user_apps_table.c
