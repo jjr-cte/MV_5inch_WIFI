@@ -612,7 +612,8 @@ void cte_ota_ctx_queue_cleanup(cte_ota_ctx_t *ctx)
         ctx->e_working = NULL;
     }
 
-    configASSERT(ctx->q_p);
+    // q_p not exist? just stop cleaning up
+    if (ctx->q_p == NULL) return;
 
     while (1) {
         cte_ota_queue_elem_t    *e = NULL;
