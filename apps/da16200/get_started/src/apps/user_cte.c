@@ -224,7 +224,8 @@ int atcmd_ota_type(int argc, char *argv[])
 void cmd_ota_type(int argc, char *argv[])
 {
     if (argc != 2) {
-        PRINTF("usage : %s [nxp/wifi]\n", argv[0]);
+        PRINTF("usage : %s [nxp|wifi]\n", argv[0]);
+        return;
     }
     else if (0 == strcasecmp(argv[1], "nxp")) {
         ota_type_set(OTA_TYPE_NXP);
@@ -233,7 +234,8 @@ void cmd_ota_type(int argc, char *argv[])
         ota_type_set(OTA_TYPE_WIFI);
     }
     else {
-        PRINTF("usage : %s [nxp/wifi]\n", argv[0]);
+        PRINTF("usage : %s [nxp|wifi]\n", argv[0]);
+        return;
     }
 
     PRINTF("current type : %s\n", ota_type_str[ota_type_get()]);

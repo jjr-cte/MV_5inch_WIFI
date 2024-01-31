@@ -32,6 +32,7 @@
 
 #include "user_command.h"
 #include "common_config.h"
+#include "user_cte.h"
 
 
 #include "assert.h"
@@ -115,7 +116,10 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
   { "coap_client", CMD_FUNC_NODE,  NULL,          &cmd_coap_client, "CoAP Client"                      },
 #endif /* __COAP_CLIENT_SAMPLE__ */
   { "utxpwr",      CMD_FUNC_NODE,  NULL,          &cmd_txpwr,       "testcmd [option]"                 },
-  { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"},
+  { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"            },
+#ifdef ENABLE_CTE_DBG
+  { "otatype",     CMD_FUNC_NODE,  NULL,          &cmd_ota_type,    "set OTA type : otatype [nxp|wifi]"},
+#endif
 
   { NULL, CMD_NULL_NODE,  NULL, NULL, NULL         }    // Tail
 };
