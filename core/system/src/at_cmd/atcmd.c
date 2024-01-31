@@ -358,7 +358,7 @@ static ota_packet_type_t    _pkt_exp = OTA_PKT_TYPE_AMD;
 void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 {
     const ota_packet_type_t     p_type = (ota_packet_type_t) payload[0];
-    const ota_type_t            o_type = (ota_type_t) payload[1];
+    const ota_type_t            o_type = ota_type_get();
     const cte_status_t          current_status = CTEStatusGet();
 
     if ( (current_status != eCTE_Socket_WaitingAck) &&
@@ -380,7 +380,11 @@ void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
     CTE_DBG_PRINT_TS();
     CTE_DBG("%s(), p_type = %s, o_type = %s\n", __func__, ota_packet_type_str[p_type], ota_type_str[o_type]);
 
-    configASSERT(o_type == ota_type_get());
+    //notify if App send wrong OTA Type
+    if (o_type != (ota_type_t)payload[1]) {
+    	CTE_DBG_XXX();
+    	CTE_DBG("mismatch OTA type from packet: %d, expected %d\n", (ota_type_t)payload[1], o_type);
+    }
 
     switch (p_type) {
         case OTA_PKT_TYPE_AMD : {
