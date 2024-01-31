@@ -1540,7 +1540,7 @@ static void atcmd_tcps_cli_task_entry(void *param)
 
     cte_ota_ctx_t   *cte_ota_ctx = cte_ota_get_context();
 
-    memset(cte_ota_ctx, 0xFF, sizeof(*cte_ota_ctx));
+    memset(cte_ota_ctx, 0, sizeof(*cte_ota_ctx));
 
     if (NULL == CTE_OTA_TaskHandler) {
         CTE_OTA_TaskHandler = xTaskGetCurrentTaskHandle();
