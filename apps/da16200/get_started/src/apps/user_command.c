@@ -117,8 +117,12 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
 #endif /* __COAP_CLIENT_SAMPLE__ */
   { "utxpwr",      CMD_FUNC_NODE,  NULL,          &cmd_txpwr,       "testcmd [option]"                 },
   { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"            },
+
+//dust.240202: didn't use pre-configured OTA-type anymore
+#if 0
 #ifdef ENABLE_CTE_DBG
   { "otatype",     CMD_FUNC_NODE,  NULL,          &cmd_ota_type,    "set OTA type : otatype [nxp|wifi]"},
+#endif
 #endif
 
   { NULL, CMD_NULL_NODE,  NULL, NULL, NULL         }    // Tail

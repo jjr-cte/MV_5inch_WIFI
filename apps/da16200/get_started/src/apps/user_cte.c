@@ -182,7 +182,7 @@ int atcmd_nxp_conn(int argc, char *argv[])
     return err_code;
 }
 
-static ota_type_t       _ota_type = OTA_TYPE_NONE;
+static ota_type_t       _ota_type = OTA_TYPE_NULL;
 
 void ota_type_set(ota_type_t t)
 {
@@ -194,6 +194,12 @@ ota_type_t ota_type_get(void)
     return _ota_type;
 }
 
+void ota_type_invalidate(void)
+{
+	_ota_type = OTA_TYPE_NULL;
+}
+
+//dust.240202: didn't use pre-configured OTA-type anymore
 int atcmd_ota_type(int argc, char *argv[])
 {
     int     err_code = AT_CMD_ERR_CMD_OK;
@@ -207,10 +213,14 @@ int atcmd_ota_type(int argc, char *argv[])
         CTE_DBG("argv[1] = %s\n", argv[1]);
 
         if (0 == strcasecmp(argv[1], "nxp")) {
-            ota_type_set(OTA_TYPE_NXP);
+#if 0
+        	ota_type_set(OTA_TYPE_NXP);
+#endif
         }
         else if (0 == strcasecmp(argv[1], "wifi")) {
+#if 0
             ota_type_set(OTA_TYPE_WIFI);
+#endif
         }
         else {
             err_code = AT_CMD_ERR_UNKNOWN;
@@ -221,6 +231,7 @@ int atcmd_ota_type(int argc, char *argv[])
 }
 
 #ifdef ENABLE_CTE_DBG
+//dust.240202: didn't use pre-configured OTA-type anymore
 void cmd_ota_type(int argc, char *argv[])
 {
     if (argc != 2) {
@@ -228,10 +239,14 @@ void cmd_ota_type(int argc, char *argv[])
         return;
     }
     else if (0 == strcasecmp(argv[1], "nxp")) {
+#if 0
         ota_type_set(OTA_TYPE_NXP);
+#endif
     }
     else if (0 == strcasecmp(argv[1], "wifi")) {
+#if 0
         ota_type_set(OTA_TYPE_WIFI);
+#endif
     }
     else {
         PRINTF("usage : %s [nxp|wifi]\n", argv[0]);

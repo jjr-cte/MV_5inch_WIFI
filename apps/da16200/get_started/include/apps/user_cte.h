@@ -153,8 +153,6 @@ typedef enum _ota_packet_type_t {
 
 extern const char *ota_packet_type_str[];
 
-#define OTA_TYPE_NONE   0xFF
-
 #define OTA_TYPE_ENUM   \
     ENUM_ENTRY(NXP),    \
     ENUM_ENTRY(WIFI)
@@ -163,7 +161,8 @@ extern const char *ota_packet_type_str[];
 
 typedef enum _ota_type_t {
     OTA_TYPE_ENUM,
-    NUM_OTA_TYPE
+    NUM_OTA_TYPE,
+	OTA_TYPE_NULL = 0xFF
 } ota_type_t;
 
 #undef ENUM_ENTRY
@@ -194,6 +193,7 @@ extern const char *nxp_conn_status_str[];
 
 extern void ota_type_set(ota_type_t t);
 extern ota_type_t ota_type_get(void);
+extern void ota_type_invalidate(void);
 
 /*
  *      app         wifi            NXP
