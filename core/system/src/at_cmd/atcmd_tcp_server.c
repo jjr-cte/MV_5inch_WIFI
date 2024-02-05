@@ -1488,19 +1488,6 @@ static void atcmd_tcps_cli_task_entry(void *param)
 
 	atcmd_tcps_cli_context *cli_ctx = (atcmd_tcps_cli_context *)param;
 
-	unsigned char *hdr = NULL;
-	size_t hdr_len = 0;
-	unsigned char *payload = NULL;
-	size_t payload_len = 0;
-	size_t tot_len = 0;
-	size_t act_hdr_len = 0;
-	size_t act_payload_len = 0;
-
-    DA16X_UNUSED_ARG(hdr);
-    DA16X_UNUSED_ARG(tot_len);
-    DA16X_UNUSED_ARG(act_hdr_len);
-    DA16X_UNUSED_ARG(act_payload_len);
-
 #if defined ( __SUPPORT_ATCMD_MULTI_SESSION__ )
 	const int cid = cli_ctx->cid;
 #else
@@ -1550,163 +1537,105 @@ static void atcmd_tcps_cli_task_entry(void *param)
 
 	cli_ctx->state = ATCMD_TCPS_CLI_STATE_CONNECTED;
 
-	size_t      pkt_art_sz = sizeof(ota_packet_art_t);
-	size_t      reasm_buf_len = pkt_art_sz * 4;
-    uint8_t     *reasm_buf = (uint8_t *) pvPortMalloc(reasm_buf_len);
-    size_t      reasm_len = 0;
+	union PacketBuffer {
+		uint8_t type;
+		ota_packet_amd_t AMD;
+		ota_packet_ast_t AST;
+		ota_packet_art_t ART;
+		ota_packet_afh_t AFH;
+	};
 
-    configASSERT(reasm_buf);
+	union PacketBuffer *pack = pvPortMalloc(sizeof(union PacketBuffer));
+	configASSERT(pack);
 
-	while (cli_ctx->state == ATCMD_TCPS_CLI_STATE_CONNECTED) {
-		memset(cli_ctx->buffer, 0x00, cli_ctx->buffer_len);
+	uint8_t *front = NULL;
+	ssize_t expect = 0;
+	int complete_count = 0;
 
-		tot_len = 0;
-		act_hdr_len = 0;
-		act_payload_len = 0;
+	while (cli_ctx->state == ATCMD_TCPS_CLI_STATE_CONNECTED)
+	{
+		do
+		{
+			if (front == NULL)
+			{
+				uint8_t ptype;
+				ret = recv(cli_ctx->socket, &ptype, 1, 0);
+				if (ret == 1)
+				{
+					switch (ptype)
+					{
+					case OTA_PKT_TYPE_AMD:
+						front = (uint8_t *)(&pack->AMD);
+						expect = 12;
+						break;
 
-		hdr = cli_ctx->buffer;
-		hdr_len = ATCMD_TCPS_RECV_HDR_SIZE;
+					case OTA_PKT_TYPE_AST:
+						front = (uint8_t *)(&pack->AST);
+						expect = 2;
+						break;
 
-		payload = cli_ctx->buffer + hdr_len;
-		payload_len = cli_ctx->buffer_len - ATCMD_TCPS_RECV_HDR_SIZE;
+					case OTA_PKT_TYPE_ART:
+						front = (uint8_t *)(&pack->ART);
+						expect = 12;
+						break;
 
-		ret = recv(cli_ctx->socket, payload, payload_len, 0);
+					case OTA_PKT_TYPE_AFH:
+						front = (uint8_t *)(&pack->AFH);
+						expect = 20;
+						break;
 
-        if (ret > 0) {
-            const ota_packet_type_t     p_type = (ota_packet_type_t) payload[0];
-            int                         passthru = 0;
+					default:
+						CTE_DBG("%s() invalid ptype = %02Xh\n", __func__, ptype);
+						front = NULL;
+						expect = 0;
+					}
 
-            if (is_valid_socket_data(p_type, ret)) {
-                passthru = 1;
-            }
-            else if (p_type == OTA_PKT_TYPE_ART) {
-                ota_packet_art_t    *p = (ota_packet_art_t *) payload;
-                uint16_t            cur_size = (uint16_t) ntohl(p->packet_size);
+					if (expect > 0)
+					{
+						pack->type = ptype;
+						front++;
+						expect--;
+						complete_count = 0;
+					}
+				}
+			}
+			// fill pack buffer
+			else
+			{
+				ret = recv(cli_ctx->socket, front, expect, 0);
 
-                if (cur_size == (ret - (sizeof(ota_packet_art_t) - OTA_CTE_APP_LEN))) {
-                    /* most likely this is the final data packet */
-                    passthru = 1;
-                }
-                else {
-                    /* truncated data packet, head part */
-                    passthru = 0;
-                }
-            }
-            else {
-                /* truncated data packet, middle & tail part */
-                passthru = 0;
-            }
+				if (ret > 0)
+				{
+					expect -= ret;
+					front += ret;
+					if (expect <= 0)	// pack complete
+					{
+						front = NULL;
+						complete_count++;
 
-            if (passthru == 1) {
-                if (0 != reasm_len) {
-                    CTE_DBG(CYAN_COLOR "truncated reset, reasm_len = %d, recvd = %d, p_type = %d\n" CLEAR_COLOR, reasm_len, ret, p_type);
+						if (pack->type == OTA_PKT_TYPE_ART && complete_count == 1)
+						{
+							front = (uint8_t *)(&pack->ART.payload);
+							expect = ntohl(pack->ART.packet_size);
+						}
+						else
+						{
+							CTEGetSocketServerData(cte_ota_ctx, (UINT8 *)pack);
+						}
+					}
+				}
+			}
 
-                    reasm_len = 0;
-                    continue;
-                }
+		} while (ret > 0);
 
-                CTEGetSocketServerData(cte_ota_ctx, payload);
-            }
-            else {
-                CTE_DBG(CYAN_COLOR "truncated, reasm_len = %ld, recvd = %d\n" CLEAR_COLOR, reasm_len, ret);
-
-                configASSERT((reasm_len + ret) <= reasm_buf_len);
-
-                if ((reasm_len + ret) <= reasm_buf_len) {
-                    memcpy(reasm_buf + reasm_len, payload, ret);
-                    reasm_len += ret;
-                }
-
-                while (reasm_len >= pkt_art_sz) {
-                    CTE_DBG(CYAN_COLOR "reassembling, reasm_len = %ld, sz = %ld\n" CLEAR_COLOR, reasm_len, pkt_art_sz);
-
-                    CTEGetSocketServerData(cte_ota_ctx, reasm_buf);
-
-                    reasm_len -= pkt_art_sz;
-                    memcpy(reasm_buf, reasm_buf + pkt_art_sz, reasm_len);
-
-                    if (CTESocketCtrlFlow(cte_ota_ctx, cli_ctx) < 0) {
-                        cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
-                    }
-                }
-            }
-        }
-
-        if (cli_ctx->state != ATCMD_TCPS_CLI_STATE_REQ_TERMINATE) {
-            if (CTESocketCtrlFlow(cte_ota_ctx, cli_ctx) < 0) {
-                cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
-            }
-        }
+		if (CTESocketCtrlFlow(cte_ota_ctx, cli_ctx) < 0) {
+			cli_ctx->state = ATCMD_TCPS_CLI_STATE_REQ_TERMINATE;
+		}
 
 		dpm_app_sleep_ready_clear((char *)(cli_ctx->task_name));
 
-		if (ret > 0) {
-			act_payload_len = ret;
-
-			ATCMD_TCPS_INFO("Recv(ip:%d.%d.%d.%d:%d/len:%ld)\n",
-					(ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
-					(ntohl(cli_ctx->addr.sin_addr.s_addr) >> 16) & 0xFF,
-					(ntohl(cli_ctx->addr.sin_addr.s_addr) >>  8) & 0xFF,
-					(ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
-					(ntohs(cli_ctx->addr.sin_port)), act_payload_len);
-
-#if 0
-#if defined(__SUPPORT_TCP_RECVDATA_HEX_MODE__)
-			if (is_tcps_data_mode_hexstring()) {
-				char *hex_buf = ATCMD_MALLOC(ATCMD_TCPS_RECV_HDR_SIZE + (act_payload_len * 2));
-				if (!hex_buf) {
-					ATCMD_TCPS_ERR("Failed to allocate buffer to pass recv data(%ld)\n",
-							ATCMD_TCPS_RECV_HDR_SIZE + (act_payload_len * 2));
-					goto end;
-				}
-
-				act_hdr_len = snprintf((char *)hex_buf, ATCMD_TCPS_RECV_HDR_SIZE,
-						"\r\n" ATCMD_TCPS_DATA_RX_PREFIX ":%d,%d.%d.%d.%d,%u,%d,", cid,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr) >> 16) & 0xFF,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr) >>  8) & 0xFF,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
-						(ntohs(cli_ctx->addr.sin_port)), (act_payload_len * 2));
-
-				tot_len = act_hdr_len;
-				Convert_Str2HexStr((char *)payload, hex_buf + tot_len, (u32_t)(act_payload_len));
-
-				tot_len += act_hdr_len + (act_payload_len * 2);
-				memcpy(hex_buf + tot_len, "\r\n", 2);
-
-				tot_len += 2;
-				hex_buf[tot_len] = '\0';
-
-				PUTS_ATCMD(hex_buf, tot_len);
-
-				ATCMD_FREE(hex_buf);
-				hex_buf = NULL;
-			} else
-#endif // __SUPPORT_TCP_RECVDATA_HEX_MODE__
-			{
-				act_hdr_len = snprintf((char *)hdr, hdr_len,
-						"\r\n" ATCMD_TCPS_DATA_RX_PREFIX ":%d,%d.%d.%d.%d,%u,%d,", cid,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr) >> 16) & 0xFF,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr) >>  8) & 0xFF,
-						(int)(ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
-						(ntohs(cli_ctx->addr.sin_port)), act_payload_len);
-
-				tot_len = act_hdr_len;
-				if (!memmove(hdr + tot_len, payload, act_payload_len)) {
-					ATCMD_TCPS_ERR("Failed to copy received data(%ld)\n", act_payload_len);
-				}
-
-				tot_len += act_payload_len;
-				memcpy(hdr + tot_len, "\r\n", 2);
-
-				tot_len += 2;
-				hdr[tot_len] = '\0';
-
-				PUTS_ATCMD((char *)hdr, tot_len);
-			}
-#endif
-		} else {
+		if (ret <= 0)
+		{
 			if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
 				ATCMD_TCPS_INFO("Disconnected(ip:%d.%d.%d.%d:%d/%d)\n",
 						(ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
@@ -1732,9 +1661,9 @@ static void atcmd_tcps_cli_task_entry(void *param)
 		}
 	}
 
-	vPortFree(reasm_buf);
-
 end:
+
+	vPortFree(pack);
 
 #if defined ( __SUPPORT_ATCMD_MULTI_SESSION__ )
 	atcmd_tcps_del_cli_addr((atcmd_tcps_context *)cli_ctx->svr_ptr, cli_ctx->addr);

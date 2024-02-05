@@ -358,15 +358,14 @@ static ota_packet_type_t    _pkt_exp = OTA_PKT_TYPE_AMD;
 void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
 {
     const ota_packet_type_t     p_type = (ota_packet_type_t) payload[0];
-    const ota_type_t            o_type = (ota_packet_type_t) payload[1];
+    const ota_type_t            o_type = (ota_type_t) payload[1];
     const cte_status_t          current_status = CTEStatusGet();
 
     if ( (current_status != eCTE_Socket_WaitingAck) &&
          (current_status != eCTE_Socket_RT) &&
          (current_status != eCTE_Socket_RST) )
     {
-        CTE_DBG("WRONG STATE !! %s:%d, state = %s\n", __func__, __LINE__, cte_status_str[current_status]);
-        CTEStatusSet(eCTE_Socket_RST);
+    	//duplicate response, just ignore
         return;
     }
 
@@ -645,8 +644,30 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
 	static uint32_t         timeout = 0;
     static cte_status_t     StatusPrev = eCTE_Socket_None;
 
-    CTE_DBG_PRINT_TS();
-    CTE_DBG("%s(), status = %s\n", __func__, cte_status_str[CTEStatusGet()]);
+#ifdef ENABLE_CTE_DBG
+    static int message_supression = 0;
+    bool print_msg = false;
+
+    //lower the frequency of "CTESocketCtrlFlow(): s = WaitingAck"
+    if (CTEStatusGet() == eCTE_Socket_WaitingAck)
+    {
+    	if (message_supression == 0) print_msg = true;
+
+    	message_supression++;
+    	if (message_supression >= 11) message_supression = 0;
+    }
+    else
+    {
+    	message_supression = 0;
+    	print_msg = true;
+    }
+
+    if (print_msg)
+    {
+    	CTE_DBG_PRINT_TS();
+		CTE_DBG("%s(): s = %s\n", __func__, cte_status_str[CTEStatusGet()]);
+    }
+#endif
 
     switch(CTEStatusGet())
 	{
@@ -662,12 +683,16 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
             ota_type_invalidate();
 
             CTEStatusSet(eCTE_Socket_WaitingAck);
+            timeout = 0;
             StatusPrev = eCTE_Socket_MD;
         }
             break;
         case eCTE_Socket_AMD:
             if (OTA_TYPE_NXP == ota_type_get())
+            {
                 CTEStatusSet(eCTE_Socket_WaitingAck);
+                timeout = 0;
+            }
             else if (OTA_TYPE_WIFI == ota_type_get())
                 CTEStatusSet(eCTE_Socket_ST);
             else
@@ -684,6 +709,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
             _pkt_exp = OTA_PKT_TYPE_AST;
 
             CTEStatusSet(eCTE_Socket_WaitingAck);
+            timeout = 0;
             StatusPrev = eCTE_Socket_ST;
         }
             break;
@@ -714,6 +740,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
             _pkt_exp = OTA_PKT_TYPE_ART;
 
             CTEStatusSet(eCTE_Socket_WaitingAck);
+            timeout = 0;
             StatusPrev = eCTE_Socket_RT;
             CTE_DBG("CSH: eCTE_Socket_RT, PacketCnt: %d\n", ctx->rx_id);
         }
@@ -770,6 +797,7 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
             _pkt_exp = OTA_PKT_TYPE_AFH;
 
             CTEStatusSet(eCTE_Socket_WaitingAck);
+            timeout = 0;
             StatusPrev = eCTE_Socket_FH;
         }
             break;
@@ -828,90 +856,96 @@ int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
             CTEStatusSet(eCTE_Socket_None);
             StatusPrev = eCTE_Socket_Close;
             return -1;
-        case eCTE_Socket_WaitingAck: {
-            vTaskDelay(pdMS_TO_TICKS(100));
+        case eCTE_Socket_WaitingAck:
+        {
+        	struct pollfd plfds[1];
+        	plfds[0].fd = cli_ctx->socket;
+        	plfds[0].events = POLLIN;
 
-            switch (StatusPrev) {
-                /*
-                 * similar timeout handling
-                 * the only difference is that RST max retx -> close
-                 *                             others -> RST
-                 */
-                case eCTE_Socket_MD :
-                case eCTE_Socket_ST :
-                case eCTE_Socket_RT :
-                case eCTE_Socket_RST :
-                case eCTE_Socket_FH :
-                {
-                    if (timeout++ > CTE_OTA_TIMEOUT) {
-                        timeout = 0;
-                        ctx->retx_cnt++;
+        	if (poll(plfds, 1, 50) <= 0)
+        	{
+                switch (StatusPrev) {
+                    /*
+                     * similar timeout handling
+                     * the only difference is that RST max retx -> close
+                     *                             others -> RST
+                     */
+                    case eCTE_Socket_MD :
+                    case eCTE_Socket_ST :
+                    case eCTE_Socket_RT :
+                    case eCTE_Socket_RST :
+                    case eCTE_Socket_FH :
+                    {
+                        if (timeout++ > CTE_OTA_TIMEOUT) {
+                            timeout = 0;
+                            ctx->retx_cnt++;
 
-                        CTE_DBG("WaitingAck (%s), timeout = %d\n", cte_status_str[StatusPrev], CTE_OTA_TIMEOUT);
+                            CTE_DBG("WaitingAck (%s), timeout = %d\n", cte_status_str[StatusPrev], CTE_OTA_TIMEOUT);
 
-                        if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
-                            ctx->retx_cnt = 0;
+                            if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
+                                ctx->retx_cnt = 0;
 
-                            cte_status_t    next;
+                                cte_status_t    next;
 
-                            if (eCTE_Socket_RST != StatusPrev)
-                                next = eCTE_Socket_RST;
-                            else
-                                next = eCTE_Socket_Close;
+                                if (eCTE_Socket_RST != StatusPrev)
+                                    next = eCTE_Socket_RST;
+                                else
+                                    next = eCTE_Socket_Close;
 
-                            CTEStatusSet(next);
-                            CTE_DBG("%s -> %s, retx exceeded %d\n", cte_status_str[StatusPrev], cte_status_str[next], CTE_OTA_RETX_MAX);
+                                CTEStatusSet(next);
+                                CTE_DBG("%s -> %s, retx exceeded %d\n", cte_status_str[StatusPrev], cte_status_str[next], CTE_OTA_RETX_MAX);
+                            }
+                            else {
+                                CTEStatusSet(StatusPrev);
+                                CTE_DBG("%s retx = %d\n", cte_status_str[StatusPrev], ctx->retx_cnt);
+                            }
                         }
-                        else {
-                            CTEStatusSet(StatusPrev);
-                            CTE_DBG("%s retx = %d\n", cte_status_str[StatusPrev], ctx->retx_cnt);
+                    }
+                        break;
+
+                    case eCTE_Socket_AMD : {
+                        switch (ctx->nxp_conn_status) {
+                            case NXP_CONN_ERASE_SENT :
+                                break;
+                            case NXP_CONN_ERASE_OK :
+                                CTEStatusSet(eCTE_Socket_ST);
+                                ctx->nxp_conn_status = NXP_CONN_NONE;
+                                break;
+                            case NXP_CONN_ERASE_NG :
+                                CTEStatusSet(eCTE_Socket_RST);
+                                ctx->nxp_conn_status = NXP_CONN_NONE;
+                                break;
+                            default :
+                                configASSERT(0);
+                                break;
                         }
                     }
-                }
-                    break;
+                        break;
 
-                case eCTE_Socket_AMD : {
-                    switch (ctx->nxp_conn_status) {
-                        case NXP_CONN_ERASE_SENT :
-                            break;
-                        case NXP_CONN_ERASE_OK :
-                            CTEStatusSet(eCTE_Socket_ST);
-                            ctx->nxp_conn_status = NXP_CONN_NONE;
-                            break;
-                        case NXP_CONN_ERASE_NG :
-                            CTEStatusSet(eCTE_Socket_RST);
-                            ctx->nxp_conn_status = NXP_CONN_NONE;
-                            break;
-                        default :
-                            configASSERT(0);
-                            break;
+                    case eCTE_Socket_AFH : {
+                        switch (ctx->nxp_conn_status) {
+                            case NXP_CONN_MD5_SENT :
+                                break;
+                            case NXP_CONN_MD5_OK :
+                                CTEStatusSet(eCTE_Socket_Close);
+                                ctx->nxp_conn_status = NXP_CONN_NONE;
+                                break;
+                            case NXP_CONN_MD5_NG :
+                                CTEStatusSet(eCTE_Socket_Close);
+                                ctx->nxp_conn_status = NXP_CONN_NONE;
+                                break;
+                            default :
+                                configASSERT(0);
+                                break;
+                        }
                     }
-                }
-                    break;
+                        break;
 
-                case eCTE_Socket_AFH : {
-                    switch (ctx->nxp_conn_status) {
-                        case NXP_CONN_MD5_SENT :
-                            break;
-                        case NXP_CONN_MD5_OK :
-                            CTEStatusSet(eCTE_Socket_Close);
-                            ctx->nxp_conn_status = NXP_CONN_NONE;
-                            break;
-                        case NXP_CONN_MD5_NG :
-                            CTEStatusSet(eCTE_Socket_Close);
-                            ctx->nxp_conn_status = NXP_CONN_NONE;
-                            break;
-                        default :
-                            configASSERT(0);
-                            break;
-                    }
+                    default :
+                        // nothing
+                        ;
                 }
-                    break;
-
-                default :
-                    // nothing
-                    ;
-            }
+        	}
         }
             break;
         case eCTE_Socket_None:
