@@ -117,6 +117,7 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
 #endif /* __COAP_CLIENT_SAMPLE__ */
   { "utxpwr",      CMD_FUNC_NODE,  NULL,          &cmd_txpwr,       "testcmd [option]"                 },
   { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"            },
+  { "rfpwr",       CMD_FUNC_NODE,  NULL,          &cmd_rf_power,    "rfpwr [on|off]"                   },
 
 //dust.240202: didn't use pre-configured OTA-type anymore
 #if 0
@@ -230,6 +231,27 @@ void cmd_defaultAPconfig(int argc, char *argv[])
 	{
 		PRINTF("failed\n");
 	}
+}
+
+void cmd_rf_power(int argc, char *argv[])
+{
+	if (argc == 2)
+	{
+		if (!strcasecmp(argv[1], "on"))
+		{
+			PRINTF("RF power on\n");
+			wifi_cs_rf_cntrl(0);
+			return;
+		}
+		else if(!strcasecmp(argv[1], "off"))
+		{
+			PRINTF("RF power off\n");
+			wifi_cs_rf_cntrl(1);
+			return;
+		}
+	}
+
+	PRINTF("usage: [on|off]\n");
 }
 
 /* EOF */
