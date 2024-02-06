@@ -7,7 +7,7 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
-#define ENABLE_CTE_DBG
+#undef ENABLE_CTE_DBG
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
 
