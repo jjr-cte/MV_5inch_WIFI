@@ -18,7 +18,7 @@
 
 #ifdef ENABLE_CTE_DBG
 #define CTE_DBG                 PRINTF
-#define memory_dump(p, l)       hex_dump((UCHAR *) p, (UINT) l)
+#define memory_dump(p, l)       CTE_hex_dump(p, l)
 #define md5dump(x)              memory_dump(x, 16)
 #define CTE_DBG_XXX()           CTE_DBG(RED_COLOR "XXX\n" CLEAR_COLOR)
 #else
@@ -39,6 +39,7 @@ typedef enum _CTE_OTA_NXP_BOOTMODE_T {
     NXP_BOOT_OTA
 } CTE_OTA_NXP_BOOTMODE_T;
 
+extern void CTE_hex_dump(const void *, size_t);
 extern void CTE_OTA_NXP_INIT(void);
 extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
 extern void CTE_OTA_NXP_RESET(void);
@@ -128,7 +129,7 @@ extern void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n);
     } while (0)
 
 #define CTE_OTA_RETX_MAX        3
-#define CTE_OTA_TIMEOUT         5       // 500 ms
+#define CTE_OTA_TIMEOUT         22       // 1320 ms
 
 #define PTYPE_ENUM      \
     ENUM_ENTRY(MD),     \

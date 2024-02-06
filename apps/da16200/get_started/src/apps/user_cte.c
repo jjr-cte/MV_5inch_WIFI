@@ -903,7 +903,7 @@ UINT nxpcmd_parser(char *in_buf)
 
     CTE_DBG_PRINT_TS();
     CTE_DBG("<- NXP\n");
-    memory_dump(in_buf, 16);
+    memory_dump(in_buf, 2);
 
 #if 0
     if (memcmp(in_buf, NXP_PingResponse, sizeof(NXP_PingResponse)) == 0)
@@ -1097,4 +1097,28 @@ UINT nxpcmd_parser(char *in_buf)
     }
 
     return 0;
+}
+
+
+void CTE_hex_dump(const void *p, size_t len)
+{
+	if (len == 0) return;
+
+	uint8_t *data = (uint8_t *) p;
+	unsigned lines = 1;
+
+	for (size_t i = 0; i < len; i++)
+	{
+		if ((i & 15) == 0)
+		{
+			PRINTF("[%06u]", lines);
+			lines++;
+		}
+
+		PRINTF(" %02X", *data);
+		data++;
+
+		if ((i & 15) == 15) PRINTF("\n");
+	}
+	if (((len-1) & 15) != 15) PRINTF("\n");
 }
