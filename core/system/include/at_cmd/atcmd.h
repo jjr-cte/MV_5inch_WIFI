@@ -135,7 +135,6 @@
 
 /// AT-CMD Debug message on UART0
 #undef    DEBUG_ATCMD
-//#define    DEBUG_ATCMD	//TODO CSH: will delete
 
 #if defined (DEBUG_ATCMD)
   #define ATCMD_DBG                      PRINTF
@@ -1160,6 +1159,7 @@ extern void printf_with_run_time(char *string);
 extern atcmd_error_code command_parser(char *line);
 extern atcmd_error_code user_atcmd_parser(char *line);
 extern atcmd_error_code esc_cmd_parser(char *line);
+
 
 /**************************************************************************
  * Global External Variables

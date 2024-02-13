@@ -62,12 +62,10 @@ static void atcmd_tcpc_task_entry(void *param);
 #if defined(__SUPPORT_TCP_RECVDATA_HEX_MODE__)
 static int tcpc_data_mode = 0;
 
-#if 0
 static int is_tcpc_data_mode_hexstring(void)
 {
 	return tcpc_data_mode == 1 ? 1 : 0;
 }
-#endif
 
 void set_tcpc_data_mode(int mode)
 {
@@ -78,7 +76,6 @@ void set_tcpc_data_mode(int mode)
 	tcpc_data_mode = mode;
 }
 
-#if 0
 static void Convert_Str2HexStr(char* in, char* out, u32_t in_size)
 {
 	u32_t cnt = 0;
@@ -91,7 +88,6 @@ static void Convert_Str2HexStr(char* in, char* out, u32_t in_size)
         i += 2;
     }
 }
-#endif
 #endif // __SUPPORT_TCP_RECVDATA_HEX_MODE__
 
 int atcmd_tcpc_init_context(atcmd_tcpc_context *ctx)
@@ -591,11 +587,6 @@ static void atcmd_tcpc_task_entry(void *param)
 	size_t act_hdr_len = 0;
 	size_t act_payload_len = 0;
 
-    DA16X_UNUSED_ARG(hdr);
-    DA16X_UNUSED_ARG(tot_len);
-    DA16X_UNUSED_ARG(act_hdr_len);
-    DA16X_UNUSED_ARG(act_payload_len);
-
 	unsigned char *payload = NULL;
 	size_t payload_len = 0;
 
@@ -760,7 +751,6 @@ static void atcmd_tcpc_task_entry(void *param)
 					(ntohl(conf->svr_addr.sin_addr.s_addr)      ) & 0xFF,
 					(ntohs(conf->svr_addr.sin_port)), act_payload_len);
 
-#if 0
 #if defined(__SUPPORT_TCP_RECVDATA_HEX_MODE__)
 			if (is_tcpc_data_mode_hexstring()) {
 				char *hex_buf = ATCMD_MALLOC(ATCMD_TCPC_RECV_HDR_SIZE + (act_payload_len * 2));
@@ -815,7 +805,6 @@ static void atcmd_tcpc_task_entry(void *param)
 
 				PUTS_ATCMD((char *)hdr, tot_len);
 			}
-#endif
 		} else {
 			if ((errno != EAGAIN) && (errno != EWOULDBLOCK)) {
 				ATCMD_TCPC_INFO("Disconnected(ip:%d.%d.%d.%d:%d/errno:%d)\r\n",
