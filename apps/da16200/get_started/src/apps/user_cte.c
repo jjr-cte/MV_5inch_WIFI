@@ -1100,25 +1100,63 @@ UINT nxpcmd_parser(char *in_buf)
 }
 
 
+#ifdef ENABLE_CTE_DBG
 void CTE_hex_dump(const void *p, size_t len)
 {
 	if (len == 0) return;
 
+	//__[001A] 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
+	// total 53 char. allocate 64bytes space.
+	const size_t BUFFER_SIZE = 64;
+	char *buf = pvPortMalloc(BUFFER_SIZE);
+
+	if (buf == NULL)
+	{
+		configASSERT(0);
+		return;
+	}
+
+	char *itr = buf;
+	size_t remain = BUFFER_SIZE;
+
 	uint8_t *data = (uint8_t *) p;
-	unsigned lines = 1;
+	unsigned lno = 1;
+	int sz;
 
 	for (size_t i = 0; i < len; i++)
 	{
+		// beginning of line
 		if ((i & 15) == 0)
 		{
-			PRINTF("[%06u]", lines);
-			lines++;
+			if ((sz = snprintf(itr, remain, "  [%04X]", lno)) > 0)
+			{
+				itr += sz;
+				remain -= sz;
+			}
+			lno++;
 		}
 
-		PRINTF(" %02X", *data);
+		if ((sz = snprintf(itr, remain, " %02X", *data)) > 0)
+		{
+			itr += sz;
+			remain -= sz;
+		}
 		data++;
 
-		if ((i & 15) == 15) PRINTF("\n");
+		if ((i & 15) == 15)
+		{
+			PRINTF("%s\n", buf);
+			itr = buf;
+			remain = BUFFER_SIZE;
+			*buf = '\0';
+		}
 	}
-	if (((len-1) & 15) != 15) PRINTF("\n");
+
+	if (*buf != '\0')
+	{
+		PRINTF("%s\n", buf);
+	}
+
+	vPortFree(buf);
 }
+#endif

@@ -39,7 +39,10 @@ typedef enum _CTE_OTA_NXP_BOOTMODE_T {
     NXP_BOOT_OTA
 } CTE_OTA_NXP_BOOTMODE_T;
 
+
+#ifdef ENABLE_CTE_DBG
 extern void CTE_hex_dump(const void *, size_t);
+#endif
 extern void CTE_OTA_NXP_INIT(void);
 extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
 extern void CTE_OTA_NXP_RESET(void);
