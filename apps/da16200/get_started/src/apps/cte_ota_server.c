@@ -850,7 +850,6 @@ void UserApp_CTE_OTA(void *args)
 							DA16200MOD_current_fw_address = get_cur_boot_index() ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
 
 							ota_type_set(OTA_TYPE_WIFI);
-							reset_retx_times();
 							stateTransfer(eOTAState_SendST);
 							break;
 
