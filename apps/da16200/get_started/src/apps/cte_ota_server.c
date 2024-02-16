@@ -3,6 +3,7 @@
 #include "user_cte.h"
 
 
+
 #define PKT_TYPE_MD		0x00
 #define PKT_TYPE_AMD	0x01
 
@@ -12,7 +13,7 @@
 #define PKT_TYPE_RT		0x04
 #define PKT_TYPE_ART	0x05
 
-// removed
+// deprecated pack type
 //#define PKT_TYPE_RST	0x06
 //#define PKT_TYPE_ARST	0x07
 
@@ -33,46 +34,14 @@ typedef union _PackBuffer
 
 
 
-static bool check_ART(ota_packet_art_t *ART, uint32_t expected_number)
-{
-	if (ART->packet_number != expected_number)
-	{
-		CTE_DBG("ART No.%" PRIu32 ", expected %" PRIu32 "\n", ART->packet_number, expected_number);
-		return false;
-	}
-
-	uint32_t psz = ART->packet_size;
-	if (ART->packet_size > OTA_CTE_APP_LEN)
-	{
-		CTE_DBG("ART too long: %" PRIu32 "\n", psz);
-		return false;
-	}
-
-	uint8_t checksum = 0;
-	for (uint32_t i = 0; i < psz; i++)
-	{
-		checksum ^= ART->payload[i];
-	}
-
-	if (checksum != ART->checksum)
-	{
-		CTE_DBG("ART checksum: %02Xh, expected %02Xh\n", checksum, ART->checksum);
-		return false;
-	}
-
-	return true;
-}
-
-
-
-static void CTE_OTA_TCP_connect_event(int sock_fd);
-static void CTE_OTA_TCP_disconnect_event();
+static void CTE_OTA_TCP_connected(int sock_fd);
+static void CTE_OTA_TCP_disconnected();
 static void CTE_OTA_mobile_response_event(PackBuffer *pack);
 
 
 
 ////////////////////////////////////////////////////////////////////////////////
-
+/// memory pool mechanism for response buffer
 
 #define RB_POOL_NUM 4
 struct PoolUnit
@@ -80,11 +49,12 @@ struct PoolUnit
 	struct PoolUnit *next;
 	PackBuffer memory;
 };
+
 static struct PoolUnit response_buffer_pool[RB_POOL_NUM];
 static struct PoolUnit *pool_head;
-
 static SemaphoreHandle_t mutex_rb_pool;
 
+// initialize response_buffer_pool[]
 static void initialize_rb_pool()
 {
 	for (size_t i=0; i<RB_POOL_NUM-1; i++)
@@ -93,8 +63,12 @@ static void initialize_rb_pool()
 	}
 	response_buffer_pool[RB_POOL_NUM-1].next = NULL;
 	pool_head = &response_buffer_pool[0];
+
+	mutex_rb_pool = xSemaphoreCreateMutex();
+	configASSERT(mutex_rb_pool);
 }
 
+//allocate a response buffer
 static PackBuffer* retrieve_response_buffer()
 {
 	xSemaphoreTake(mutex_rb_pool, portMAX_DELAY);
@@ -115,6 +89,7 @@ static PackBuffer* retrieve_response_buffer()
 	return buf;
 }
 
+//free a response buffer
 static void release_response_buffer(PackBuffer *buf)
 {
 	if (buf == NULL) return;
@@ -127,6 +102,7 @@ static void release_response_buffer(PackBuffer *buf)
 }
 
 #ifdef ENABLE_CTE_DBG
+//testing if there is memory leaking
 static void rb_pool_debug()
 {
 	CTE_DBG("response buffer pool:\n");
@@ -147,8 +123,7 @@ static void rb_pool_debug()
 
 
 ////////////////////////////////////////////////////////////////////////////////
-
-
+/// PackCollectInfo & pkc_* APIs : collect a complete packet
 
 typedef struct _PackCollector
 {
@@ -157,9 +132,10 @@ typedef struct _PackCollector
 	int recv_error;
 	int complete_count;
 
-} PackCollector;
+} PackCollectInfo;
 
-static void pkc_init(PackCollector *_this)
+//initialize PackCollector structure
+static void pkc_init(PackCollectInfo *_this)
 {
 	_this->front = NULL;
 	_this->expect = 0;
@@ -167,26 +143,30 @@ static void pkc_init(PackCollector *_this)
 	_this->complete_count = 0;
 }
 
-static bool pkc_is_waiting_type(PackCollector *_this)
+//正在等待接收PKT_TYPE_
+static bool pkc_is_waiting_PType(PackCollectInfo *_this)
 {
 	return _this->front == NULL;
 }
 
-static void pkc_expect_content(PackCollector *_this, void *buffer, ssize_t expect_length)
+//設定預期接收的長度，以及buffer address
+static void pkc_expect_content(PackCollectInfo *_this, void *buffer, ssize_t expect_length)
 {
 	_this->front = ((uint8_t *)buffer);
 	_this->expect = expect_length;
 }
 
-static void pkc_stop_waiting(PackCollector *_this)
+//標記為接收完成
+static void pkc_complete(PackCollectInfo *_this)
 {
 	_this->front = NULL;
 }
 
+/// 進行接收
 /// @return non-null: complete pack \n
 ///         NULL: incomplete \n
-/// 		if incomplete, check PackCollector.recv_error
-bool pkc_receive(PackCollector *pkc, int fd, PackBuffer *pack)
+/// 		if incomplete, and check recv_error field
+static bool pkc_receive(PackCollectInfo *pkc, int fd, PackBuffer *pack)
 {
 	ssize_t recv_len = 0;
 
@@ -194,8 +174,10 @@ bool pkc_receive(PackCollector *pkc, int fd, PackBuffer *pack)
 
 	do
 	{
-		if (pkc_is_waiting_type(pkc))
+		if (pkc_is_waiting_PType(pkc))
 		{
+			//讀出PKT_TYPE並決定後面要怎麼接收封包
+
 			uint8_t ptype;
 			recv_len = recv(fd, &ptype, 1, 0);
 
@@ -221,7 +203,6 @@ bool pkc_receive(PackCollector *pkc, int fd, PackBuffer *pack)
 
 				default:
 					CTE_DBG("%s() invalid ptype = %02Xh\n", __func__, ptype);
-					pkc_stop_waiting(pkc);
 					pkc->expect = 0;
 				}
 
@@ -234,21 +215,24 @@ bool pkc_receive(PackCollector *pkc, int fd, PackBuffer *pack)
 				}
 			}
 		}
-		// fill pack buffer
 		else
 		{
+			// 填充封包內容
+
 			recv_len = recv(fd, pkc->front, pkc->expect, 0);
 
 			if (recv_len > 0)
 			{
 				pkc->expect -= recv_len;
 				pkc->front += recv_len;
+
 				if (pkc->expect <= 0)	// pack complete
 				{
-					pkc_stop_waiting(pkc);
+					pkc_complete(pkc);
 					pkc->complete_count++;
 
-					//post-processing for packs
+					//封包後製
+					//僅限印出一些資訊與進行endian轉換
 					switch (pack->type)
 					{
 					case PKT_TYPE_AMD:
@@ -299,6 +283,7 @@ bool pkc_receive(PackCollector *pkc, int fd, PackBuffer *pack)
 }
 
 
+//設定 OTA Server
 static int OTA_server_configuration()
 {
 	int sock_server = socket(PF_INET, SOCK_STREAM, 0);
@@ -353,15 +338,17 @@ static void CTE_OTA_server()
 		int fd = accept(sock_server, NULL, NULL);
 		if (fd >= 0)
 		{
-			CTE_OTA_TCP_connect_event(fd);
+			CTE_OTA_TCP_connected(fd);
 
-			PackCollector collector;
+			PackCollectInfo collector;
 			pkc_init(&collector);
 
 			while (1)
 			{
 				if (pkc_receive(&collector, fd, pack))
 				{
+					//若未能取得新的空間，就沿用先前的response buffer，並丟棄剛收到的封包
+
 					PackBuffer *new_buf = retrieve_response_buffer();
 
 					if (new_buf != NULL)
@@ -371,17 +358,16 @@ static void CTE_OTA_server()
 					}
 					else
 					{
-						// do nothing here.
-						//若未能取得新的空間，就沿用先前的response buffer，並放棄剛收到的封包
 						CTE_DBG(">>> no buffer for packet <<<\n");
 					}
 				}
 				else
 				{
+					//錯誤發生！通報斷線事件給flow control並結束目前的讀取迴圈
 					if (collector.recv_error != 0)
 					{
 						CTE_DBG("TCP closed: %d\n", collector.recv_error);
-						CTE_OTA_TCP_disconnect_event();
+						CTE_OTA_TCP_disconnected();
 						break;
 					}
 				}
@@ -395,7 +381,7 @@ static void task_OTA_TCP_server(void *args)
 {
 	DA16X_UNUSED_ARG(args);
 
-	CTE_OTA_server();	// not return if it initialized normally
+	CTE_OTA_server();	// not return if it's initialized normally
 
 	while (1)
 	{
@@ -404,12 +390,61 @@ static void task_OTA_TCP_server(void *args)
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+/// information structure for flashing NXP ROM
+
+typedef struct
+{
+	uint32_t remain;
+	uint8_t *source;
+	uint32_t block_len;
+	PackBuffer *pack;
+
+} NxpFlashingInfo;
+
+static void nfi_init(NxpFlashingInfo *_this)
+{
+	_this->remain = 0;
+	_this->source = NULL;
+	_this->block_len = 0;
+	_this->pack = NULL;
+}
+
+//開始這次寫入
+static void nfi_begin(NxpFlashingInfo *_this, PackBuffer *pack)
+{
+	_this->remain = pack->ART.packet_size;
+	_this->source = pack->ART.payload;
+	_this->pack = pack;
+}
+
+//寫入flash
+static void nfi_write_flash(NxpFlashingInfo *_this)
+{
+	//限制每次送出的長度
+	_this->block_len = configMIN(_this->remain, OTA_CTE_NXP_LEN);
+
+	nxp_ota_msg_data(_this->source, _this->block_len);
+}
+
+//移動指標到下次要送出的資料
+static void nfi_next_block(NxpFlashingInfo *_this)
+{
+	_this->source += _this->block_len;
+	_this->remain -= _this->block_len;
+	CTE_DBG("remain = %" PRIu32 "\n", _this->remain);
+}
+
+//釋放PackBuffer
+static void nfi_cleanup(NxpFlashingInfo *_this)
+{
+	if(_this->pack) release_response_buffer(_this->pack);
+	_this->pack = NULL;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
-
-
-static QueueHandle_t event_queue;
-
+/// State Machine Events definition
 
 #define OTA_FSM_EVENT_ENUMERATION \
 	ENTRIES(TIMEOUT), \
@@ -449,23 +484,11 @@ static const char *strOTAEvent(EventType e)
 	return text_ota_event[e];
 }
 
-#endif
+#endif	/* ENABLE_CTE_DBG */
 
 
-
-typedef struct
-{
-	EventType type;
-
-	union
-	{
-		PackBuffer *pack;
-		int tcp_fd;
-	};
-
-} EventMsg;
-
-
+////////////////////////////////////////////////////////////////////////////////
+/// State definition
 
 #define OTA_FSM_STATE_ENUMERATION \
 		ENTRIES(Closed), \
@@ -486,7 +509,6 @@ typedef struct
 		ENTRIES(Terminate), \
 // leave this line blank
 
-
 #define ENTRIES(x)   eOTAState_ ## x
 typedef enum OTAutomataStates
 {
@@ -497,7 +519,10 @@ typedef enum OTAutomataStates
 #undef ENTRIES
 
 
-static const TickType_t state_timeout_setting[OTA_FSM_STATE_NUM] = {
+//每個state的超時設定
+//一旦進入這個state超過以下的時間，且佇列當下沒有其他事件，就會產生TIMEOUT event
+//若設為portMAX_DELAY，即使過再久都不會有TIMEOUT event
+const TickType_t state_timeout_period[OTA_FSM_STATE_NUM] = {
 		/* Closed */ portMAX_DELAY,
 		/* SendMD */ 0,
 		/* WaitAMD */  CTE_OTA_TIMEOUT,
@@ -526,25 +551,57 @@ const char *text_ota_state[] =
 };
 #undef ENTRIES
 
-
 static const char *strOTAState(OTA_FSM_State st)
 {
 	return text_ota_state[st];
 }
 
-#endif
+#endif	/* ENABLE_CTE_DBG */
 
 
+////////////////////////////////////////////////////////////////////////////////
+/// packet send functions
+
+static int remote_tcp_fd;
+static int retx_times;
+
+static void send_packet(void *data, size_t len)
+{
+	CTE_DBG("send PKT: %" PRIu32 "\n", (uint32_t)len);
+	memory_dump(data, len);
+
+	ssize_t rc = send(remote_tcp_fd, data, len, 0);
+	retx_times++;
+
+	if (rc < 0)
+	{
+		CTE_DBG(">> error: %d\n", errno);
+	}
+}
+
+static void reset_retx_times()
+{
+	retx_times = 0;
+}
+
+static bool packet_sent_too_many()
+{
+	return retx_times >= CTE_OTA_RETX_MAX;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// TIMEOUT event functions
 
 TickType_t toe_from, toe_period;
 
-/// @period: portMAX_DELAY means no time-out event
-static void set_timeout_event(TickType_t period)
+static void set_timeout_event(OTA_FSM_State st)
 {
 	toe_from = xTaskGetTickCount();
-	toe_period = period;
+	toe_period = state_timeout_period[st];
 }
 
+//決定等待事件佇列要等多久
 static TickType_t calc_TicksToWait()
 {
 	if (toe_period == portMAX_DELAY)
@@ -557,54 +614,42 @@ static TickType_t calc_TicksToWait()
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+/// OTA flow control
+
+//事件的資料結構
 typedef struct
 {
-	uint32_t remain;
-	uint8_t *block_addr;
-	uint32_t block_len;
-	PackBuffer *pack;
+	EventType type;
 
-} NxpFlashingInfo;
+	union
+	{
+		PackBuffer *pack;
+		int tcp_fd;
+	};
 
-static void nfi_zero_initialize(NxpFlashingInfo *_this)
+} EventMsg;
+
+
+static OTA_FSM_State _ota_state;
+
+static OTA_FSM_State current_state()
 {
-	_this->remain = 0;
-	_this->block_addr = NULL;
-	_this->block_len = 0;
-	_this->pack = NULL;
+	return _ota_state;
 }
 
-static void nfi_start(NxpFlashingInfo *_this, PackBuffer *pack)
+static void stateTransfer(OTA_FSM_State new_st)
 {
-	_this->remain = pack->ART.packet_size;
-	_this->block_addr = pack->ART.payload;
-	_this->block_len = 0;
-	_this->pack = pack;
-}
-
-static void nfi_write_flash(NxpFlashingInfo *_this)
-{
-	_this->block_len = configMIN(_this->remain, OTA_CTE_NXP_LEN);
-	nxp_ota_msg_data(_this->block_addr, _this->block_len);
-}
-
-static void nfi_next_block(NxpFlashingInfo *_this)
-{
-	_this->block_addr += _this->block_len;
-	_this->remain -= _this->block_len;
-
-	CTE_DBG("block remain length = %u\n", _this->remain);
-}
-
-static void nfi_cleanup(NxpFlashingInfo *_this)
-{
-	if(_this->pack) release_response_buffer(_this->pack);
-	_this->pack = NULL;
+	CTE_DBG("%s -> %s\n", strOTAState(_ota_state), strOTAState(new_st));
+	_ota_state = new_st;
+	set_timeout_event(new_st);
 }
 
 
+static QueueHandle_t event_queue;
 
-static void CTE_OTA_TCP_connect_event(int sock_fd)
+//通知flow control TCP連線建立
+static void CTE_OTA_TCP_connected(int sock_fd)
 {
 	EventMsg e;
 	e.type = EV_LINK_START;
@@ -612,15 +657,15 @@ static void CTE_OTA_TCP_connect_event(int sock_fd)
 	xQueueSend(event_queue, &e, 0);
 }
 
-
-static void CTE_OTA_TCP_disconnect_event()
+//通知flow control TCP連線斷開
+static void CTE_OTA_TCP_disconnected()
 {
 	EventMsg e;
 	e.type = EV_LINK_BREAK;
 	xQueueSend(event_queue, &e, 0);
 }
 
-
+//通知flow control WiFi離線
 void CTE_OTA_WiFi_disassociated()
 {
 	EventMsg e;
@@ -628,7 +673,7 @@ void CTE_OTA_WiFi_disassociated()
 	xQueueSend(event_queue, &e, 0);
 }
 
-
+//通知flow control 收到封包
 static void CTE_OTA_mobile_response_event(PackBuffer *pack)
 {
 	EventMsg e;
@@ -637,7 +682,7 @@ static void CTE_OTA_mobile_response_event(PackBuffer *pack)
 	xQueueSend(event_queue, &e, 0);
 }
 
-
+//通知flow control NXP的Flash擦除結果
 void CTE_OTA_Nxp_erase_answer(bool erase_ok)
 {
 	EventMsg e;
@@ -645,7 +690,7 @@ void CTE_OTA_Nxp_erase_answer(bool erase_ok)
 	xQueueSend(event_queue, &e, 0);
 }
 
-
+//通知flow control NXP的Flash寫入結果
 void CTE_OTA_Nxp_write_block_result(bool write_ok)
 {
 	EventMsg e;
@@ -653,7 +698,7 @@ void CTE_OTA_Nxp_write_block_result(bool write_ok)
 	xQueueSend(event_queue, &e, 0);
 }
 
-
+//通知flow control NXP Flash寫入結束
 void CTE_OTA_Nxp_flash_finished()
 {
 	EventMsg e;
@@ -661,7 +706,7 @@ void CTE_OTA_Nxp_flash_finished()
 	xQueueSend(event_queue, &e, 0);
 }
 
-
+//通知flow control NXP的MD5檢查結果
 void CTE_OTA_MD5_result(bool md5_ok)
 {
 	EventMsg e;
@@ -670,48 +715,40 @@ void CTE_OTA_MD5_result(bool md5_ok)
 }
 
 
-
-static int remote_tcp_fd;
-static int request_retry;
-
-static void send_by_wifi(void *data, size_t len)
+/// @return  true: valid; false: invalid.
+static bool check_ART(ota_packet_art_t *ART, uint32_t expected_number)
 {
-	CTE_DBG("send pkt:\n");
-	memory_dump(data, len);
-
-	ssize_t rc = send(remote_tcp_fd, data, len, 0);
-	request_retry++;
-
-	if (rc < 0)
+	// is it expected packet number?
+	if (ART->packet_number != expected_number)
 	{
-		CTE_DBG(">> error: %d\n", errno);
+		CTE_DBG("ART No.%" PRIu32 ", expected %" PRIu32 "\n", ART->packet_number, expected_number);
+		return false;
 	}
-}
 
-static void reset_retx_times()
-{
-	request_retry = 0;
-}
+	// is it valid packet size?
+	uint32_t psz = ART->packet_size;
+	if (ART->packet_size > OTA_CTE_APP_LEN)
+	{
+		CTE_DBG("ART too long: %" PRIu32 "\n", psz);
+		return false;
+	}
 
-static bool request_sent_too_many()
-{
-	return request_retry >= CTE_OTA_RETX_MAX;
-}
+	// check the check sum
 
+	uint8_t checksum = 0;
+	for (uint32_t i = 0; i < psz; i++)
+	{
+		checksum ^= ART->payload[i];
+	}
 
+	if (checksum != ART->checksum)
+	{
+		CTE_DBG("ART checksum: %02Xh, expected %02Xh\n", checksum, ART->checksum);
+		return false;
+	}
 
-static OTA_FSM_State g_ota_state;
-
-static OTA_FSM_State current_state()
-{
-	return g_ota_state;
-}
-
-static void stateTransfer(OTA_FSM_State new_st)
-{
-	CTE_DBG("%s -> %s\n", strOTAState(g_ota_state), strOTAState(new_st));
-	g_ota_state = new_st;
-	set_timeout_event(state_timeout_setting[new_st]);
+	// all passed
+	return true;
 }
 
 
@@ -724,12 +761,14 @@ static void reboot_after_da16200_updated()
 }
 
 
+/* CTE_OTA User App 概述
+ * 這是一個狀態機，控制著OTA的流程。在TCP連線開啟時重設狀態，然後開始一系列的交互
+ * CTE_OTA App 會建立一個Task，負責處理接入TCP連線
+ * */
+
 void UserApp_CTE_OTA(void *args)
 {
 	DA16X_UNUSED_ARG(args);
-
-	mutex_rb_pool = xSemaphoreCreateMutex();
-	configASSERT(mutex_rb_pool);
 
 	event_queue = xQueueCreate(16, sizeof(EventMsg));
 	configASSERT(event_queue);
@@ -750,15 +789,16 @@ void UserApp_CTE_OTA(void *args)
 	uint32_t current_packet_number = 0;
 	uint32_t total_packets = 0;
 	uint32_t total_size = 0;
-	UINT DA16200MOD_current_fw_address = 0;
-	NxpFlashingInfo nxp_flash_writer;
-	mbedtls_md5_context MD5_calc;
+	UINT DA16200MOD_fw_write_address = 0;
 
-	nfi_zero_initialize(&nxp_flash_writer);
+	NxpFlashingInfo nxp_flash_writer;
+	nfi_init(&nxp_flash_writer);
+
+	mbedtls_md5_context MD5_calc;
 	mbedtls_md5_init(&MD5_calc);
 
-	g_ota_state = eOTAState_Closed;
-	set_timeout_event(portMAX_DELAY);
+	_ota_state = eOTAState_Closed;
+	set_timeout_event(_ota_state);
 
 	while (1)
 	{
@@ -820,7 +860,7 @@ void UserApp_CTE_OTA(void *args)
 				ota_packet_md_t p;
 				memset(&p, 0, sizeof(p));
 				p.type = PKT_TYPE_MD;
-				send_by_wifi(&p, sizeof(p));
+				send_packet(&p, sizeof(p));
 				stateTransfer(eOTAState_WaitAMD);
 			}
 				break;
@@ -847,7 +887,7 @@ void UserApp_CTE_OTA(void *args)
 							break;
 
 						case OTA_TYPE_WIFI:
-							DA16200MOD_current_fw_address = get_cur_boot_index() ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
+							DA16200MOD_fw_write_address = get_cur_boot_index() ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
 
 							ota_type_set(OTA_TYPE_WIFI);
 							stateTransfer(eOTAState_SendST);
@@ -862,13 +902,13 @@ void UserApp_CTE_OTA(void *args)
 				}
 				else if (ev.type == EV_TIMEOUT)
 				{
-					if (request_sent_too_many())
+					if (packet_sent_too_many())
 					{
 						stateTransfer(eOTAState_Terminate);
 					}
 					else
 					{
-						CTE_DBG("request retry = %u\n", request_retry);
+						CTE_DBG("re-Tx: %d\n", retx_times);
 						stateTransfer(eOTAState_SendMD);
 					}
 				}
@@ -890,7 +930,7 @@ void UserApp_CTE_OTA(void *args)
 				ota_packet_st_t p;
 				memset(&p, 0, sizeof(p));
 				p.type = PKT_TYPE_ST;
-				send_by_wifi(&p, sizeof(p));
+				send_packet(&p, sizeof(p));
 				stateTransfer(eOTAState_WaitAST);
 			}
 				break;
@@ -909,13 +949,13 @@ void UserApp_CTE_OTA(void *args)
 				}
 				else if (ev.type == EV_TIMEOUT)
 				{
-					if (request_sent_too_many())
+					if (packet_sent_too_many())
 					{
 						stateTransfer(eOTAState_Terminate);
 					}
 					else
 					{
-						CTE_DBG("request retry = %u\n", request_retry);
+						CTE_DBG("re-Tx: %d\n", retx_times);
 						stateTransfer(eOTAState_SendST);
 					}
 				}
@@ -929,7 +969,7 @@ void UserApp_CTE_OTA(void *args)
 					p.type = PKT_TYPE_RT;
 					p.packet_number = htonl(current_packet_number);
 
-					send_by_wifi(&p, sizeof(p));
+					send_packet(&p, sizeof(p));
 					stateTransfer(eOTAState_WaitART);
 				}
 				else
@@ -943,7 +983,7 @@ void UserApp_CTE_OTA(void *args)
 					case OTA_TYPE_WIFI:
 						if (ota_update_sflash_crc(get_cur_boot_index()? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE))
 						{
-							CTE_DBG("Update DA16200: toggle boot index (now: %d)\n", get_cur_boot_index());
+							CTE_DBG("Update DA16200: current boot index = %d\n", get_cur_boot_index());
 							ota_update_toggle_boot_index();
 							stateTransfer(eOTAState_SendFH);
 						}
@@ -973,21 +1013,21 @@ void UserApp_CTE_OTA(void *args)
 						switch (ota_type_get())
 						{
 						case OTA_TYPE_NXP:
-							nfi_start(&nxp_flash_writer, ev.pack);
+							nfi_begin(&nxp_flash_writer, ev.pack);
 							ev.pack = NULL;
 							stateTransfer(eOTAState_NxpWriteFlash);
 							break;
 
 						case OTA_TYPE_WIFI:
-							CTE_DBG("write DA16200 SFlash: 0x%08X %" PRIu32 "\n", DA16200MOD_current_fw_address, ev.pack->ART.packet_size);
+							CTE_DBG("write DA16200 SFlash at 0x%08X %" PRIu32 "\n", DA16200MOD_fw_write_address, ev.pack->ART.packet_size);
 
 							if (writeDataToFlash(
-									DA16200MOD_current_fw_address,
+									DA16200MOD_fw_write_address,
 									(UCHAR *)ev.pack->ART.payload,
 									(UINT) ev.pack->ART.packet_size
 								) == TRUE )
 							{
-								DA16200MOD_current_fw_address += ev.pack->ART.packet_size;
+								DA16200MOD_fw_write_address += ev.pack->ART.packet_size;
 								stateTransfer(eOTAState_SendRT);
 							}
 							else
@@ -1004,13 +1044,13 @@ void UserApp_CTE_OTA(void *args)
 				}
 				else if (ev.type == EV_TIMEOUT)
 				{
-					if (request_sent_too_many())
+					if (packet_sent_too_many())
 					{
 						stateTransfer(eOTAState_Terminate);
 					}
 					else
 					{
-						CTE_DBG("request retry = %u\n", request_retry);
+						CTE_DBG("re-Tx: %d\n", retx_times);
 						stateTransfer(eOTAState_SendRT);
 					}
 				}
@@ -1055,7 +1095,7 @@ void UserApp_CTE_OTA(void *args)
 				ota_packet_fh_t p;
 				memset(&p, 0, sizeof(p));
 				p.type = PKT_TYPE_FH;
-				send_by_wifi(&p, sizeof(p));
+				send_packet(&p, sizeof(p));
 
 				switch (ota_type_get())
 				{
@@ -1082,7 +1122,7 @@ void UserApp_CTE_OTA(void *args)
 						unsigned char md5_hash[16];
 						mbedtls_md5_finish_ret(&MD5_calc, md5_hash);
 
-						// 在DA上計算MD5只是為了除錯，不參與實際流程
+						// 在DA16200上計算MD5只是為了除錯，不會參與流程控制
 						CTE_DBG("our MD5 hash:\n");
 						md5dump(md5_hash);
 						CTE_DBG("app MD5 hash:\n");
@@ -1093,7 +1133,6 @@ void UserApp_CTE_OTA(void *args)
 						char *p = buf + strlen(buf);
 						for (size_t i = 0; i < 16; i++)
 						{
-							//lower case hexadecimal
 							sprintf(p, "%02x", ev.pack->AFH.md5sum[i]);
 							p += 2;
 						}
@@ -1106,13 +1145,13 @@ void UserApp_CTE_OTA(void *args)
 				}
 				else if (ev.type == EV_TIMEOUT)
 				{
-					if (request_sent_too_many())
+					if (packet_sent_too_many())
 					{
 						stateTransfer(eOTAState_Terminate);
 					}
 					else
 					{
-						CTE_DBG("request retry = %u\n", request_retry);
+						CTE_DBG("re-Tx: %d\n", retx_times);
 						stateTransfer(eOTAState_SendFH);
 					}
 				}
@@ -1136,7 +1175,7 @@ void UserApp_CTE_OTA(void *args)
 				}
 				else if (ev.type == EV_TIMEOUT)
 				{
-					if (request_sent_too_many())
+					if (packet_sent_too_many())
 					{
 						// just reboot. it doesn't matter if we don't get AFH
 						reboot_after_da16200_updated();
@@ -1144,7 +1183,7 @@ void UserApp_CTE_OTA(void *args)
 					}
 					else
 					{
-						CTE_DBG("request retry = %u\n", request_retry);
+						CTE_DBG("re-Tx: %d\n", retx_times);
 						stateTransfer(eOTAState_SendFH);
 					}
 				}
