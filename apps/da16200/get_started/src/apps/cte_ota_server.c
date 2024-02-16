@@ -162,10 +162,9 @@ static void pkc_complete(PackCollectInfo *_this)
 	_this->front = NULL;
 }
 
-/// 進行接收
-/// @return non-null: complete pack \n
-///         NULL: incomplete \n
-/// 		if incomplete, and check recv_error field
+/// 接收封包
+/// @return true: complete pack \N
+///         false: connection closed, check the recv_error field
 static bool pkc_receive(PackCollectInfo *pkc, int fd, PackBuffer *pack)
 {
 	ssize_t recv_len = 0;
@@ -202,8 +201,10 @@ static bool pkc_receive(PackCollectInfo *pkc, int fd, PackBuffer *pack)
 					break;
 
 				default:
-					CTE_DBG("%s() invalid ptype = %02Xh\n", __func__, ptype);
-					pkc->expect = 0;
+					CTE_DBG("invalid PKT_TYPE %02Xh\n", ptype);
+					closesocket(fd);
+					pkc->recv_error = 0;
+					return false;
 				}
 
 				if (pkc->expect > 0)
@@ -276,9 +277,9 @@ static bool pkc_receive(PackCollectInfo *pkc, int fd, PackBuffer *pack)
 			}
 		}
 
-	} while (recv_len >= 0);
+	} while (recv_len > 0);
 
-	pkc->recv_error = errno;
+	pkc->recv_error = (recv_len < 0)? errno : 0;
 	return false;
 }
 
@@ -363,13 +364,9 @@ static void CTE_OTA_server()
 				}
 				else
 				{
-					//錯誤發生！通報斷線事件給flow control並結束目前的讀取迴圈
-					if (collector.recv_error != 0)
-					{
-						CTE_DBG("TCP closed: %d\n", collector.recv_error);
-						CTE_OTA_TCP_disconnected();
-						break;
-					}
+					CTE_DBG("TCP closed: %d\n", collector.recv_error);
+					CTE_OTA_TCP_disconnected();
+					break;
 				}
 			}
 		}
