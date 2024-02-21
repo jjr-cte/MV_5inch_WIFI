@@ -7,7 +7,7 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
-#define ENABLE_CTE_DBG
+#undef ENABLE_CTE_DBG
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
 
@@ -51,7 +51,7 @@ extern TaskHandle_t         CTE_OTA_TaskHandler;
 
 extern int atcmd_wifi_ctrl(int argc, char *argv[]);
 
-#define CTEVER_P    "P00"
+#define CTEVER_P    "P01"
 #define CTEVER_T    "T00"
 
 extern int atcmd_ctever(int argc, char *argv[]);
