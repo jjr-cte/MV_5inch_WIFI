@@ -915,7 +915,7 @@ static void monitor_atcmd(void)
                 esc_cmd_parser(atcmd_uart_mon_buf);
             } else if (atcmd_uart_mon_buf[0] == CTE_NXP_COMMAND_CODE) {
             	//parse CTE Nxp OTA command
-            	nxpcmd_parser(atcmd_uart_mon_buf);
+            	nxpcmd_parser((const uint8_t *)atcmd_uart_mon_buf);
 #if defined (__SUPPORT_ATCMD_TLS__)
             } else if (strncmp(atcmd_uart_mon_buf, ATCMD_TLS_WR_CMD, strlen(ATCMD_TLS_WR_CMD)) == 0) {
                 major_err_code = command_parser_tls_wr(atcmd_uart_mon_buf);
@@ -1459,6 +1459,20 @@ static int gets_atcmd_uart(char *buf)
         {
         	buf[0] = ch;
         	buf[1] = getchar_atcmd_uart(portMAX_DELAY);
+
+        	//special process for 5A A1 5A A4
+        	//雖然這樣寫很不健康但為了實作協議的格式只好這樣了
+        	if ((uint8_t)buf[1] == 0xA1)
+        	{
+        		buf[2] = getchar_atcmd_uart(portNO_DELAY);
+        		buf[3] = getchar_atcmd_uart(portNO_DELAY);
+        	}
+        	else
+        	{
+        		buf[2] = 0;
+        		buf[3] = 0;
+        	}
+
             return AT_CMD_ERR_CMD_OK;
         }
 

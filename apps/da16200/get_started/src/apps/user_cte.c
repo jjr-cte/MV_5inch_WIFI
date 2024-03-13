@@ -96,7 +96,7 @@ int atcmd_nxp_conn(int argc, char *argv[])
 
     DA16X_UNUSED_ARG(argc);
 
-    CTE_DBG("%s(), AT+%s\n", __func__, argv[0]);
+    CTE_DBG("%s(), %s\n", __func__, argv[0]);
 
     if (0 == strcasecmp(argv[0] + 3, "ERASEOK"))
     {
@@ -246,7 +246,6 @@ void nxp_answer_ack()
 void nxp_ota_msg_data(const void *data, size_t length)
 {
     uint8_t buf[6] = { 0 };
-    uint16_t crc = 0;
     const uint8_t *raw = (const uint8_t *)data;
 
     CTE_DBG("%s(): length = %u\n", __func__, length);
@@ -263,6 +262,7 @@ void nxp_ota_msg_data(const void *data, size_t length)
     buf[idx++] = (uint8_t) ( length        & 0xFF);
     buf[idx++] = (uint8_t) ((length >>  8) & 0xFF);
 
+    uint16_t crc = 0;
     for (size_t i = 0; i < 4; i++) {
         crc = calc_crc16_byte(crc, buf[i]);
     }
@@ -286,23 +286,40 @@ void nxp_ota_msg_data(const void *data, size_t length)
  * under AT-CMD task, priority OS_TASK_PRIORITY_USER + 6
  * call path : atcmd_task() -> monitor_atcmd() -> nxpcmd_parser()
  */
-void nxpcmd_parser(const char *in_buf)
+void nxpcmd_parser(const uint8_t *in_buf)
 {
-	switch ((uint8_t) in_buf[1])
+	switch (in_buf[1])
 	{
 	case 0xA1:
-		CTE_OTA_Nxp_write_block_result(false);
-		break;
-
-	case 0xA4:
-		CTE_OTA_Nxp_flash_finished();
+		//special process for 5A A1 5A A4
+		if (in_buf[2] == 0x5A && in_buf[3] == 0xA4)
+		{
+			CTE_OTA_Nxp_flash_finished();
+		}
+		else
+		{
+			CTE_OTA_Nxp_write_block_ok();
+		}
 		break;
 
 	case 0xA2:
+		CTE_DBG(RED_COLOR "NAK\n" CLEAR_COLOR);
+		CTE_OTA_Nxp_write_block_abort();
+		break;
+
 	case 0xA3:
+		CTE_DBG(RED_COLOR "CRC error\n" CLEAR_COLOR);
+		CTE_OTA_Nxp_write_block_abort();
+		break;
+
 	case 0xFE:
+		CTE_DBG(RED_COLOR "NXP not received\n" CLEAR_COLOR);
+		CTE_OTA_Nxp_write_block_abort();
+		break;
+
 	case 0xFF:
-		CTE_OTA_Nxp_write_block_result(false);
+		CTE_DBG(RED_COLOR "NXP stopped\n" CLEAR_COLOR);
+		CTE_OTA_Nxp_write_block_abort();
 		break;
 
 	default:

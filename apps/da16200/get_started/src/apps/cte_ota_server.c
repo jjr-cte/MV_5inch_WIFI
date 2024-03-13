@@ -396,6 +396,7 @@ typedef struct
 	uint8_t *source;
 	uint32_t block_len;
 	PackBuffer *pack;
+	uint32_t retx_times;
 
 } NxpFlashingInfo;
 
@@ -405,6 +406,7 @@ static void nfi_init(NxpFlashingInfo *_this)
 	_this->source = NULL;
 	_this->block_len = 0;
 	_this->pack = NULL;
+	_this->retx_times = 0;
 }
 
 //開始這次寫入
@@ -412,7 +414,9 @@ static void nfi_begin(NxpFlashingInfo *_this, PackBuffer *pack)
 {
 	_this->remain = pack->ART.packet_size;
 	_this->source = pack->ART.payload;
+	_this->block_len = 0;
 	_this->pack = pack;
+	_this->retx_times = 0;
 }
 
 //寫入flash
@@ -420,8 +424,19 @@ static void nfi_write_flash(NxpFlashingInfo *_this)
 {
 	//限制每次送出的長度
 	_this->block_len = configMIN(_this->remain, OTA_CTE_NXP_LEN);
+	_this->retx_times++;
 
 	nxp_ota_msg_data(_this->source, _this->block_len);
+}
+
+static bool nfi_tried_too_many(NxpFlashingInfo *_this)
+{
+	if (_this->retx_times >= CTE_FLASH_WRITE_RETX_MAX)
+	{
+		return true;
+	}
+
+	return false;
 }
 
 //移動指標到下次要送出的資料
@@ -429,6 +444,7 @@ static void nfi_next_block(NxpFlashingInfo *_this)
 {
 	_this->source += _this->block_len;
 	_this->remain -= _this->block_len;
+	_this->retx_times = 0;
 	CTE_DBG("remain = %" PRIu32 "\n", _this->remain);
 }
 
@@ -450,8 +466,9 @@ static void nfi_cleanup(NxpFlashingInfo *_this)
 	ENTRIES(LINK_BREAK), \
 	ENTRIES(ERASE_OK), \
 	ENTRIES(ERASE_FAIL), \
-	ENTRIES(NXP_WRITE_OK), \
-	ENTRIES(NXP_WRITE_FAIL), \
+	ENTRIES(NXP_WRITE_ACK), \
+	ENTRIES(NXP_WRITE_REWRITE), \
+	ENTRIES(NXP_WRITE_ABORT), \
 	ENTRIES(NXP_WRITE_FINISH), \
 	ENTRIES(MD5_OK), \
 	ENTRIES(MD5_NG), \
@@ -533,7 +550,7 @@ const TickType_t state_timeout_period[OTA_FSM_STATE_NUM] = {
 		/* NxpWaitFinale */  portMAX_DELAY,
 		/* SendFH */  0,
 		/* WaitAFH */  CTE_OTA_TIMEOUT,
-		/* WaitNxpMD5 */  pdMS_TO_TICKS(1000),
+		/* WaitNxpMD5 */  pdMS_TO_TICKS(5000),
 		/* WaitAFH_OtaTypeWiFi */  CTE_OTA_TIMEOUT,
 		/* Terminate */  0,
 };
@@ -560,7 +577,7 @@ static const char *strOTAState(OTA_FSM_State st)
 /// packet send functions
 
 static int remote_tcp_fd;
-static int retx_times;
+static int pkt_retxs;
 
 static void send_packet(void *data, size_t len)
 {
@@ -568,7 +585,7 @@ static void send_packet(void *data, size_t len)
 	memory_dump(data, len);
 
 	ssize_t rc = send(remote_tcp_fd, data, len, 0);
-	retx_times++;
+	pkt_retxs++;
 
 	if (rc < 0)
 	{
@@ -576,14 +593,14 @@ static void send_packet(void *data, size_t len)
 	}
 }
 
-static void reset_retx_times()
+static void reset_packet_retx_times()
 {
-	retx_times = 0;
+	pkt_retxs = 0;
 }
 
 static bool packet_sent_too_many()
 {
-	return retx_times >= CTE_OTA_RETX_MAX;
+	return pkt_retxs >= CTE_OTA_RETX_MAX;
 }
 
 
@@ -637,6 +654,7 @@ static OTA_FSM_State current_state()
 
 static void stateTransfer(OTA_FSM_State new_st)
 {
+	CTE_DBG_PRINT_TS();
 	CTE_DBG("%s -> %s\n", strOTAState(_ota_state), strOTAState(new_st));
 	_ota_state = new_st;
 	set_timeout_event(new_st);
@@ -687,11 +705,27 @@ void CTE_OTA_Nxp_erase_answer(bool erase_ok)
 	xQueueSend(event_queue, &e, 0);
 }
 
-//通知flow control NXP的Flash寫入結果
-void CTE_OTA_Nxp_write_block_result(bool write_ok)
+//通知知flow control NXP的Flash寫入沒問題
+extern void CTE_OTA_Nxp_write_block_ok()
 {
 	EventMsg e;
-	e.type = (write_ok)? EV_NXP_WRITE_OK : EV_NXP_WRITE_FAIL;
+	e.type = EV_NXP_WRITE_ACK;
+	xQueueSend(event_queue, &e, 0);
+}
+
+//通知知flow control NXP的Flash寫入失敗，需要重送
+extern void CTE_OTA_Nxp_write_block_rewrite()
+{
+	EventMsg e;
+	e.type = EV_NXP_WRITE_REWRITE;
+	xQueueSend(event_queue, &e, 0);
+}
+
+//通知知flow control終止對NXP的Flash寫入
+extern void CTE_OTA_Nxp_write_block_abort()
+{
+	EventMsg e;
+	e.type = EV_NXP_WRITE_ABORT;
 	xQueueSend(event_queue, &e, 0);
 }
 
@@ -829,10 +863,22 @@ void UserApp_CTE_OTA(void *args)
 		{
 		case EV_LINK_START:
 			remote_tcp_fd = ev.tcp_fd;
-			reset_retx_times();
+			reset_packet_retx_times();
 			ota_type_invalidate();
 			CTE_DBG("(global) ");
 			stateTransfer(eOTAState_SendMD);
+
+			//相容舊版主程式
+			{
+#if defined ( __ATCMD_IF_UART2__ )
+				HANDLE atcmd_uart = uart2;
+#else
+				HANDLE atcmd_uart = uart1;
+#endif // (__ATCMD_IF_UART2__)
+				static const char unsolicited_response[] = "\r\n+TRCTS:0,10.0.0.2,12345\r\n";
+				UART_WRITE(atcmd_uart, (VOID *)unsolicited_response, 27);
+			}
+
 			break;
 
 		case EV_LINK_BREAK:
@@ -871,7 +917,7 @@ void UserApp_CTE_OTA(void *args)
 						total_packets = ev.pack->AMD.total_packet;
 						CTE_DBG("total size = %" PRIu32 "\n", total_size);
 						CTE_DBG("total packet = %" PRIu32 "\n", total_packets);
-						reset_retx_times();
+						reset_packet_retx_times();
 
 						switch (ev.pack->AMD.ota_type)
 						{
@@ -905,7 +951,7 @@ void UserApp_CTE_OTA(void *args)
 					}
 					else
 					{
-						CTE_DBG("re-Tx: %d\n", retx_times);
+						CTE_DBG("re-Tx: %d\n", pkt_retxs);
 						stateTransfer(eOTAState_SendMD);
 					}
 				}
@@ -940,7 +986,7 @@ void UserApp_CTE_OTA(void *args)
 			            mbedtls_md5_init(&MD5_calc);
 			            mbedtls_md5_starts_ret(&MD5_calc);
 						current_packet_number = 0;
-						reset_retx_times();
+						reset_packet_retx_times();
 						stateTransfer(eOTAState_SendRT);
 					}
 				}
@@ -952,7 +998,7 @@ void UserApp_CTE_OTA(void *args)
 					}
 					else
 					{
-						CTE_DBG("re-Tx: %d\n", retx_times);
+						CTE_DBG("re-Tx: %d\n", pkt_retxs);
 						stateTransfer(eOTAState_SendST);
 					}
 				}
@@ -1004,12 +1050,14 @@ void UserApp_CTE_OTA(void *args)
 					if (ev.pack->type == PKT_TYPE_ART && check_ART(&ev.pack->ART, current_packet_number))
 					{
 						current_packet_number++;
-						reset_retx_times();
+						reset_packet_retx_times();
 						mbedtls_md5_update_ret(&MD5_calc, ev.pack->ART.payload, ev.pack->ART.packet_size);
 
 						switch (ota_type_get())
 						{
 						case OTA_TYPE_NXP:
+							CTE_DBG("write RT Flash pkt.%u\n", current_packet_number);
+
 							nfi_begin(&nxp_flash_writer, ev.pack);
 							ev.pack = NULL;
 							stateTransfer(eOTAState_NxpWriteFlash);
@@ -1047,7 +1095,7 @@ void UserApp_CTE_OTA(void *args)
 					}
 					else
 					{
-						CTE_DBG("re-Tx: %d\n", retx_times);
+						CTE_DBG("re-Tx: %d\n", pkt_retxs);
 						stateTransfer(eOTAState_SendRT);
 					}
 				}
@@ -1056,8 +1104,15 @@ void UserApp_CTE_OTA(void *args)
 			case eOTAState_NxpWriteFlash:
 				if (nxp_flash_writer.remain > 0)
 				{
-					nfi_write_flash(&nxp_flash_writer);
-					stateTransfer(eOTAState_NxpWaitWrite);
+					if (nfi_tried_too_many(&nxp_flash_writer))
+					{
+						stateTransfer(eOTAState_Terminate);
+					}
+					else
+					{
+						nfi_write_flash(&nxp_flash_writer);
+						stateTransfer(eOTAState_NxpWaitWrite);
+					}
 				}
 				else
 				{
@@ -1067,15 +1122,19 @@ void UserApp_CTE_OTA(void *args)
 				break;
 
 			case eOTAState_NxpWaitWrite:
-				if (ev.type == EV_NXP_WRITE_OK)
+				if (ev.type == EV_NXP_WRITE_ACK)
 				{
 					nfi_next_block(&nxp_flash_writer);
 					stateTransfer(eOTAState_NxpWriteFlash);
 				}
-				else if(ev.type == EV_NXP_WRITE_FAIL)
+				else if(ev.type == EV_NXP_WRITE_REWRITE)
 				{
-					CTE_DBG("retry Nxp Write Flash\n");
 					stateTransfer(eOTAState_NxpWriteFlash);
+				}
+				else if(ev.type == EV_NXP_WRITE_ABORT)
+				{
+					CTE_DBG("Write Failed.\n  block_len = %u, remain = %u\n", nxp_flash_writer.block_len, nxp_flash_writer.remain);
+					stateTransfer(eOTAState_Terminate);
 				}
 				break;
 
@@ -1148,7 +1207,7 @@ void UserApp_CTE_OTA(void *args)
 					}
 					else
 					{
-						CTE_DBG("re-Tx: %d\n", retx_times);
+						CTE_DBG("re-Tx: %d\n", pkt_retxs);
 						stateTransfer(eOTAState_SendFH);
 					}
 				}
@@ -1180,7 +1239,7 @@ void UserApp_CTE_OTA(void *args)
 					}
 					else
 					{
-						CTE_DBG("re-Tx: %d\n", retx_times);
+						CTE_DBG("re-Tx: %d\n", pkt_retxs);
 						stateTransfer(eOTAState_SendFH);
 					}
 				}
@@ -1191,11 +1250,9 @@ void UserApp_CTE_OTA(void *args)
 				nfi_cleanup(&nxp_flash_writer);
 				mbedtls_md5_free(&MD5_calc);
 				closesocket(remote_tcp_fd);
-
 #ifdef ENABLE_CTE_DBG
 				rb_pool_debug();
 #endif
-
 				stateTransfer(eOTAState_Closed);
 				break;
 

@@ -66,8 +66,9 @@ extern int atcmd_ota_type(int argc, char *argv[]);
 
 
 
-#define CTE_OTA_RETX_MAX        3
-#define CTE_OTA_TIMEOUT         pdMS_TO_TICKS(1500)
+#define CTE_OTA_RETX_MAX        	3
+#define CTE_FLASH_WRITE_RETX_MAX	5
+#define CTE_OTA_TIMEOUT         	portMAX_DELAY
 
 #define PTYPE_ENUM      \
     ENUM_ENTRY(MD),     \
@@ -198,7 +199,7 @@ extern void cte_generate_crc_table(void);
 
 extern void nxp_answer_ack();
 extern void nxp_ota_msg_data(const void *data, size_t length);
-extern void nxpcmd_parser(const char *in_buf);
+extern void nxpcmd_parser(const uint8_t *in_buf);
 
 
 
@@ -212,9 +213,14 @@ extern void CTE_OTA_WiFi_disassociated();
 // erase_ok: *true* if received "AT+ERASEOK", *false* if received "AT+ERASENG"
 extern void CTE_OTA_Nxp_erase_answer(bool erase_ok);
 
-// notify CTE OTA Server task that WRITE_BLOCK command to dashboard is done
-// write_ok: *true* if received 'write OK', *false* if received 'write NG'
-extern void CTE_OTA_Nxp_write_block_result(bool write_ok);
+// notify CTE OTA Server task that WRITE_BLOCK command to dashboard is OK
+extern void CTE_OTA_Nxp_write_block_ok();
+
+// notify CTE OTA Server task that retry WRITE_BLOCK command to dashboard
+extern void CTE_OTA_Nxp_write_block_rewrite();
+
+// notify CTE OTA Server task that stop sending WRITE_BLOCK command to dashboard
+extern void CTE_OTA_Nxp_write_block_abort();
 
 // notify CTE OTA Server task that dashboard firmware write is finished
 extern void CTE_OTA_Nxp_flash_finished();
