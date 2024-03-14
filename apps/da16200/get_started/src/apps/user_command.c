@@ -30,6 +30,7 @@
  ****************************************************************************************
  */
 
+#include <ctype.h>
 #include "user_command.h"
 #include "common_config.h"
 #include "user_cte.h"
@@ -118,6 +119,7 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
   { "utxpwr",      CMD_FUNC_NODE,  NULL,          &cmd_txpwr,       "testcmd [option]"                 },
   { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"            },
   { "rfpwr",       CMD_FUNC_NODE,  NULL,          &cmd_rf_power,    "rfpwr [on|off]"                   },
+  { "wfsap",       CMD_FUNC_NODE,  NULL,          &cmd_forged_wfsap, "alias to AT+WFSAP"                },
 
   { NULL, CMD_NULL_NODE,  NULL, NULL, NULL         }    // Tail
 };
@@ -245,6 +247,56 @@ void cmd_rf_power(int argc, char *argv[])
 	}
 
 	PRINTF("usage: [on|off]\n");
+}
+
+extern int atcmd_wifi(int argc, char *argv[]);
+void cmd_forged_wfsap(int argc, char *argv[])
+{
+	if (argc != 2)
+	{
+		PRINTF("usage: [serial number]\n");
+		return;
+	}
+
+	if (strlen(argv[1]) == 6)
+	{
+		static char ssid[] = "LXP_000000";
+		char *p = ssid + 4;
+
+		bool ok = true;
+		for (size_t i=0; i<6; i++)
+		{
+			char c = argv[1][i];
+			if (isdigit(c))
+			{
+				*p = c;
+				p++;
+			}
+			else
+			{
+				ok = false;
+				break;
+			}
+		}
+
+		if (ok)
+		{
+			*p = '\0';	//just in case
+			char *cmds[] = {"AT+WFSAP", ssid, "3", "1", "00000000000000000", "0", "US"};
+
+			PRINTF("send %s", cmds[0]);
+			for (size_t i = 1; i < 7; i++)
+			{
+				PRINTF("%c%s", (i>1)? ',':'=', cmds[i]);
+			}
+			PRINTF("\n");
+
+			atcmd_wifi(7, cmds);
+			return;
+		}
+	}
+
+	PRINTF("invalid S/N: %s\n", argv[1]);
 }
 
 /* EOF */
