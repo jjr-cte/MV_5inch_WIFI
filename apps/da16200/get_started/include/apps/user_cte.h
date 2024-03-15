@@ -66,9 +66,9 @@ extern int atcmd_ota_type(int argc, char *argv[]);
 
 
 
-#define CTE_OTA_RETX_MAX        	3
+#define CTE_OTA_RETX_MAX        	99999
 #define CTE_FLASH_WRITE_RETX_MAX	5
-#define CTE_OTA_TIMEOUT         	portMAX_DELAY
+#define CTE_OTA_TIMEOUT         	pdMS_TO_TICKS(6000)
 
 #define PTYPE_ENUM      \
     ENUM_ENTRY(MD),     \

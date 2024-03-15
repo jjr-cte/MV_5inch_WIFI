@@ -1465,7 +1465,14 @@ static int gets_atcmd_uart(char *buf)
         	if ((uint8_t)buf[1] == 0xA1)
         	{
         		buf[2] = getchar_atcmd_uart(portNO_DELAY);
-        		buf[3] = getchar_atcmd_uart(portNO_DELAY);
+        		if (buf[2] == 0x5A)
+        		{
+        			buf[3] = getchar_atcmd_uart(portMAX_DELAY);
+        		}
+        		else
+        		{
+        			buf[3] = 0;
+        		}
         	}
         	else
         	{
@@ -15701,7 +15708,8 @@ void atcmd_asynchony_event(int index, char *buf)
         break;
 
     case 2:    //ATC_EV_APCONN:
-        PRINTF_ATCMD("\r\n+WFCST:%s\r\n", buf);
+#if 0
+    	PRINTF_ATCMD("\r\n+WFCST:%s\r\n", buf);
 
         for (int i = 0; i < 6; i++) {
             if (strlen(atcmd_mac_table[i]) == 0) {
@@ -15709,11 +15717,12 @@ void atcmd_asynchony_event(int index, char *buf)
                 break;
             }
         }
-
+#endif
         break;
 
     case 3:    //ATC_EV_APDISCONN:
-        PRINTF_ATCMD("\r\n+WFDST:%s\r\n", buf);
+#if 0
+    	PRINTF_ATCMD("\r\n+WFDST:%s\r\n", buf);
 
         for (int i = 0; i < 6; i++) {
             if (strcmp(atcmd_mac_table[i], buf) == 0) {
@@ -15721,6 +15730,7 @@ void atcmd_asynchony_event(int index, char *buf)
                 break;
             }
         }
+#endif
         break;
 
 #if defined ( __SUPPORT_MQTT__ )

@@ -683,9 +683,7 @@ static void CTE_OTA_TCP_disconnected()
 //通知flow control WiFi離線
 void CTE_OTA_WiFi_disassociated()
 {
-	EventMsg e;
-	e.type = EV_LINK_BREAK;
-	xQueueSend(event_queue, &e, 0);
+	// do nothing
 }
 
 //通知flow control 收到封包
@@ -868,15 +866,15 @@ void UserApp_CTE_OTA(void *args)
 			CTE_DBG("(global) ");
 			stateTransfer(eOTAState_SendMD);
 
-			//相容舊版主程式
+			//workaround to RT's AT parser
 			{
 #if defined ( __ATCMD_IF_UART2__ )
 				HANDLE atcmd_uart = uart2;
 #else
 				HANDLE atcmd_uart = uart1;
 #endif // (__ATCMD_IF_UART2__)
-				static const char unsolicited_response[] = "\r\n+TRCTS:0,10.0.0.2,12345\r\n";
-				UART_WRITE(atcmd_uart, (VOID *)unsolicited_response, 27);
+				static const char async_resp[] = "\r\n+WFCST:FA:KE:0M:AC:AD:DR\r\n\r\n+TRCTS:0,10.0.0.2,12345\r\n";
+				UART_WRITE(atcmd_uart, (VOID *)async_resp, 28+27);
 			}
 
 			break;
@@ -915,8 +913,8 @@ void UserApp_CTE_OTA(void *args)
 					{
 						total_size = ev.pack->AMD.total_size;
 						total_packets = ev.pack->AMD.total_packet;
-						CTE_DBG("total size = %" PRIu32 "\n", total_size);
-						CTE_DBG("total packet = %" PRIu32 "\n", total_packets);
+						PRINTF("total size = %" PRIu32 "\n", total_size);
+						PRINTF("total packet = %" PRIu32 "\n", total_packets);
 						reset_packet_retx_times();
 
 						switch (ev.pack->AMD.ota_type)
@@ -970,6 +968,8 @@ void UserApp_CTE_OTA(void *args)
 
 			case eOTAState_SendST:
 			{
+				PRINTF("START\n");
+
 				ota_packet_st_t p;
 				memset(&p, 0, sizeof(p));
 				p.type = PKT_TYPE_ST;
@@ -1098,6 +1098,11 @@ void UserApp_CTE_OTA(void *args)
 						CTE_DBG("re-Tx: %d\n", pkt_retxs);
 						stateTransfer(eOTAState_SendRT);
 					}
+				}
+				else if (ev.type == EV_NXP_WRITE_ABORT)
+				{
+					//
+					stateTransfer(eOTAState_Terminate);
 				}
 				break;
 
@@ -1246,6 +1251,7 @@ void UserApp_CTE_OTA(void *args)
 				break;
 
 			case eOTAState_Terminate:
+				PRINTF("FIN\n");
 				//release resource
 				nfi_cleanup(&nxp_flash_writer);
 				mbedtls_md5_free(&MD5_calc);

@@ -312,6 +312,12 @@ void nxpcmd_parser(const uint8_t *in_buf)
 		CTE_OTA_Nxp_write_block_abort();
 		break;
 
+	case 0xA4:
+		//special process for 5A A1 5A A4
+		CTE_DBG(YELLOW_COLOR "separated A4\n" CLEAR_COLOR);
+		CTE_OTA_Nxp_flash_finished();
+		break;
+
 	case 0xFE:
 		CTE_DBG(RED_COLOR "NXP not received\n" CLEAR_COLOR);
 		CTE_OTA_Nxp_write_block_abort();
