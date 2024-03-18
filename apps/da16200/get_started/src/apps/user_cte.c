@@ -78,7 +78,7 @@ int atcmd_ctever(int argc, char *argv[])
 {
     int     err_code = AT_CMD_ERR_CMD_OK_WO_PRINT;
 
-    CTE_DBG("%s()\n", __func__);
+    PRINTF("%s(): %s%s\n", __func__, CTEVER_P, CTEVER_T);
 
     if (argc == 1 || is_correct_query_arg(argc, argv[1])) {
         PRINTF_ATCMD("\r\n+CTEVER:%s%s\r\n", CTEVER_P, CTEVER_T);

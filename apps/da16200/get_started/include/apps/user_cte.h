@@ -6,10 +6,10 @@
 
 #define CTE_OTA_SERVER_PORT 	2300
 
-#define CTEVER_P    "P00"
-#define CTEVER_T    "T00"
+#define CTEVER_P    "P01"
+#define CTEVER_T    "T02"
 
-#define ENABLE_CTE_DBG
+//#define ENABLE_CTE_DBG
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
 
