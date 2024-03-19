@@ -7,9 +7,12 @@
 #define CTE_OTA_SERVER_PORT 	2300
 
 #define CTEVER_P    "P01"
-#define CTEVER_T    "T02"
+#define CTEVER_T    "T03"
 
-//#define ENABLE_CTE_DBG
+#ifndef RELEASE_BUILD
+#  define ENABLE_CTE_DBG
+#endif
+
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
 
@@ -192,6 +195,16 @@ typedef struct _ota_packet_afh_t {
     uint8_t     _pad[2];
     uint8_t     md5sum[16];
 } ota_packet_afh_t;
+
+/*
+ * OTA_PKT_TYPE_RV
+ */
+typedef struct {
+    uint8_t     type;
+    uint8_t     ota_type;
+    char ver[6];
+
+} ota_packet_rv_t;
 
 
 

@@ -1,6 +1,7 @@
 #include <inttypes.h>
 #include "sdk_type.h"
 #include "user_cte.h"
+#include <assert.h>
 
 
 
@@ -19,6 +20,8 @@
 
 #define PKT_TYPE_FH		0x08
 #define PKT_TYPE_AFH	0x09
+
+#define PKT_TYPE_RV		0x0A	//report version
 
 
 
@@ -511,6 +514,7 @@ static const char *strOTAEvent(EventType e)
 		ENTRIES(WaitErase), \
 		ENTRIES(SendST), \
 		ENTRIES(WaitAST), \
+		ENTRIES(SendRV), \
 		ENTRIES(SendRT), \
 		ENTRIES(WaitART), \
 		ENTRIES(NxpWriteFlash), \
@@ -536,13 +540,14 @@ typedef enum OTAutomataStates
 //每個state的超時設定
 //一旦進入這個state超過以下的時間，且佇列當下沒有其他事件，就會產生TIMEOUT event
 //若設為portMAX_DELAY，即使過再久都不會有TIMEOUT event
-const TickType_t state_timeout_period[OTA_FSM_STATE_NUM] = {
+const TickType_t state_timeout_period[] = {
 		/* Closed */ portMAX_DELAY,
 		/* SendMD */ 0,
 		/* WaitAMD */  CTE_OTA_TIMEOUT,
 		/* WaitErase */ portMAX_DELAY,
 		/* SendST */  0,
 		/* WaitAST */  CTE_OTA_TIMEOUT,
+		/* SendRV */ 0,
 		/* SendRT */ 0,
 		/* WaitART */  CTE_OTA_TIMEOUT,
 		/* NxpWriteFlash */ 0,
@@ -554,6 +559,8 @@ const TickType_t state_timeout_period[OTA_FSM_STATE_NUM] = {
 		/* WaitAFH_OtaTypeWiFi */  CTE_OTA_TIMEOUT,
 		/* Terminate */  0,
 };
+
+static_assert(OTA_FSM_STATE_NUM == sizeof(state_timeout_period) / sizeof(TickType_t), "missing timeout config in state_timeout_period[]");
 
 
 #ifdef ENABLE_CTE_DBG
@@ -576,7 +583,7 @@ static const char *strOTAState(OTA_FSM_State st)
 ////////////////////////////////////////////////////////////////////////////////
 /// packet send functions
 
-static int remote_tcp_fd;
+static int remote_tcp_fd = -1;
 static int pkt_retxs;
 
 static void send_packet(void *data, size_t len)
@@ -584,12 +591,19 @@ static void send_packet(void *data, size_t len)
 	CTE_DBG("send PKT: %" PRIu32 "\n", (uint32_t)len);
 	memory_dump(data, len);
 
-	ssize_t rc = send(remote_tcp_fd, data, len, 0);
 	pkt_retxs++;
+
+	if (remote_tcp_fd < 0)
+	{
+		CTE_DBG("no connection\n");
+		return;
+	}
+
+	ssize_t rc = send(remote_tcp_fd, data, len, 0);
 
 	if (rc < 0)
 	{
-		CTE_DBG(">> error: %d\n", errno);
+		CTE_DBG("send error: %d\n", errno);
 	}
 }
 
@@ -784,7 +798,7 @@ static bool check_ART(ota_packet_art_t *ART, uint32_t expected_number)
 static void reboot_after_da16200_updated()
 {
 	PRINTF("DA16200 will reboot after 1.5 sec...\n");
-	closesocket(remote_tcp_fd);
+	if (remote_tcp_fd >= 0) closesocket(remote_tcp_fd);
     vTaskDelay(pdMS_TO_TICKS(1500));
     reboot_func(SYS_REBOOT_POR);
 }
@@ -815,6 +829,7 @@ void UserApp_CTE_OTA(void *args)
 		NULL
 	);
 
+	bool network_no_longer_use = false;
 	uint32_t current_packet_number = 0;
 	uint32_t total_packets = 0;
 	uint32_t total_size = 0;
@@ -863,6 +878,7 @@ void UserApp_CTE_OTA(void *args)
 			remote_tcp_fd = ev.tcp_fd;
 			reset_packet_retx_times();
 			ota_type_invalidate();
+			network_no_longer_use = false;
 			CTE_DBG("(global) ");
 			stateTransfer(eOTAState_SendMD);
 
@@ -880,8 +896,11 @@ void UserApp_CTE_OTA(void *args)
 			break;
 
 		case EV_LINK_BREAK:
+			remote_tcp_fd = -1;
+
 			// no termination under Closed state
-			if (current_state() != eOTAState_Closed)
+			// no termination after last packet received (AFH)
+			if (current_state() != eOTAState_Closed && !network_no_longer_use)
 			{
 				CTE_DBG("(global) ");
 				stateTransfer(eOTAState_Terminate);
@@ -931,7 +950,16 @@ void UserApp_CTE_OTA(void *args)
 							DA16200MOD_fw_write_address = get_cur_boot_index() ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
 
 							ota_type_set(OTA_TYPE_WIFI);
-							stateTransfer(eOTAState_SendST);
+
+							// when AMD carry 0xFACE in pad, report WiFi version
+							if (ev.pack->AMD._pad[0] == 0xFA && ev.pack->AMD._pad[1] == 0xCE)
+							{
+								stateTransfer(eOTAState_SendRV);
+							}
+							else
+							{
+								stateTransfer(eOTAState_SendST);
+							}
 							break;
 
 						default:
@@ -1002,6 +1030,25 @@ void UserApp_CTE_OTA(void *args)
 						stateTransfer(eOTAState_SendST);
 					}
 				}
+				break;
+
+			case eOTAState_SendRV:
+			{
+				ota_packet_rv_t p;
+				PRINTF("REPORT VERSION\n");
+				p.type = PKT_TYPE_RV;
+				p.ota_type = 1;
+				memcpy(&p.ver[0], CTEVER_P, 3);
+				memcpy(&p.ver[3], CTEVER_T, 3);
+#ifndef RELEASE_BUILD
+				for (size_t i=0; i<6; i++)
+				{
+					p.ver[i] = tolower(p.ver[i]);
+				}
+#endif
+				send_packet(&p, sizeof(p));
+				stateTransfer(eOTAState_Terminate);
+			}
 				break;
 
 			case eOTAState_SendRT:
@@ -1101,7 +1148,6 @@ void UserApp_CTE_OTA(void *args)
 				}
 				else if (ev.type == EV_NXP_WRITE_ABORT)
 				{
-					//
 					stateTransfer(eOTAState_Terminate);
 				}
 				break;
@@ -1180,6 +1226,8 @@ void UserApp_CTE_OTA(void *args)
 				{
 					if (ev.pack->type == PKT_TYPE_AFH)
 					{
+						network_no_longer_use = true;
+
 						unsigned char md5_hash[16];
 						mbedtls_md5_finish_ret(&MD5_calc, md5_hash);
 
@@ -1230,6 +1278,7 @@ void UserApp_CTE_OTA(void *args)
 				{
 					if (ev.pack->type == PKT_TYPE_AFH)
 					{
+						network_no_longer_use = true;
 						reboot_after_da16200_updated();
 						stateTransfer(eOTAState_Terminate);
 					}
@@ -1255,7 +1304,7 @@ void UserApp_CTE_OTA(void *args)
 				//release resource
 				nfi_cleanup(&nxp_flash_writer);
 				mbedtls_md5_free(&MD5_calc);
-				closesocket(remote_tcp_fd);
+				if (remote_tcp_fd >= 0) closesocket(remote_tcp_fd);
 #ifdef ENABLE_CTE_DBG
 				rb_pool_debug();
 #endif

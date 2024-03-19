@@ -426,6 +426,18 @@ void PRINTF_ATCMD(const char *fmt, ...)
 #endif
 
 #if	defined(__ATCMD_IF_UART1__)
+
+#ifndef RELEASE_BUILD
+	if (len > 30)
+	{
+		PRINTF("\033[35m%u[%.30s\033[1;30m...\033[0m\n", len, atcmd_print_buf);
+	}
+	else
+	{
+		PRINTF("\033[35m%u[%s]\033[0m\n", len, atcmd_print_buf);
+	}
+#endif
+
 	UART_WRITE(uart1, atcmd_print_buf, len);
 #elif defined(__ATCMD_IF_UART2__)
 	UART_WRITE(uart2, atcmd_print_buf, len);
