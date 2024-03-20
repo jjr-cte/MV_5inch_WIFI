@@ -50,7 +50,7 @@ typedef enum _atcmd_tcpc_state {
 
 #define ATCMD_TCPC_MAX_TASK_NAME		configMAX_TASK_NAME_LEN
 #define ATCMD_TCPC_MAX_SOCK_NAME		configMAX_TASK_NAME_LEN
-#define ATCMD_TCPC_RECV_TIMEOUT			1000		//ms
+#define ATCMD_TCPC_RECV_TIMEOUT			100		//ms
 #define ATCMD_TCPC_SEND_TIMEOUT			5000	//ms
 #define ATCMD_TCPC_RECONN_COUNT			3
 

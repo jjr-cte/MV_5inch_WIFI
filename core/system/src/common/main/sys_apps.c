@@ -451,13 +451,6 @@ static void run_sys_apps(void)
 
         read_nvram_int((const char *)NVR_KEY_NETMODE_0, (int *)&tmpValue);
 
-#if 0
-        da16x_set_nvcache_int(DA16X_CONF_INT_MODE, SYSMODE_AP_ONLY);
-        da16x_nvcache2flash();
-
-        vTaskDelay(100);
-#endif
-
         if (tmpValue == ENABLE_DHCP_CLIENT || tmpValue == -1) {
             i = 0;
 

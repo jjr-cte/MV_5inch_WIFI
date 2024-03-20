@@ -53,8 +53,6 @@
 #include "app_provision.h"
 #endif // __SUPPORT_REMOVE_MAC_NAME__
 
-#include "user_cte.h"
-
 /// Hexa Dump API //////////////////////////////////////////////////////////
 /*
 direction: 0: UART0, 1: ATCMD_INTERFACE

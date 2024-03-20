@@ -1189,7 +1189,7 @@ void version_display(int argc, char *argv[])
     get_firmware_version(2, rtos_img_ver_str);    // RTOS
     boot_index = get_cur_boot_index();
 
-    PRINTF("\n\n");
+    PRINTF("\n\n" CLEAR_COLOR);
     PRINTF("\t******************************************************\n");
     PRINTF("\t*             %s SDK Information\n", CHIPSET_NAME);
     PRINTF("\t* --------------------------------------------------- \n");

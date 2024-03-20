@@ -250,7 +250,8 @@
     //
 #if defined ( RELEASE_BUILD )
     // Disable Console(UART0) input & output
-    #define __DISABLE_CONSOLE__       // Release-mode
+	//dust.240319: DO NOT disable console under release build.
+    #undef __DISABLE_CONSOLE__       // Release-mode
 #else
     // Enable Console(UART0) input & output
     #undef  __DISABLE_CONSOLE__       // Debug-mode

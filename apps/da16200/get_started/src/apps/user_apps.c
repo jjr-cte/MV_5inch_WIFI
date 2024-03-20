@@ -123,8 +123,9 @@ const app_task_info_t    user_apps_table[] = {
   { CUSTOMER_PROVISIONING, softap_provisioning, 256, (OS_TASK_PRIORITY_USER+1), TRUE, FALSE, UNDEF_PORT, (RUN_AP_MODE | RUN_STA_SOFTAP_MODE)    },
 #endif    // __SUPPORT_WIFI_PROVISIONING__
 
+  { "CTE_OTA", UserApp_CTE_OTA,             768, (OS_TASK_PRIORITY_USER+3), TRUE,  FALSE, UNDEF_PORT, RUN_AP_MODE},
 
-    { NULL,    NULL,    0, 0, FALSE, FALSE, UNDEF_PORT, 0    }
+  { NULL,    NULL,    0, 0, FALSE, FALSE, UNDEF_PORT, 0    }
 };
 
 
@@ -173,8 +174,6 @@ static void user_wifi_conn(void *arg)
             xSemaphoreTake(wifi_conn_notify_mutex, 300);
             ap_wifi_conn_flag = FALSE;
             xSemaphoreGive(wifi_conn_notify_mutex);
-
-            SetCTESocketConnection();
         }
 
         /* loop time delay : 10 msec */
@@ -264,7 +263,7 @@ static void user_wifi_disconn(void *arg)
             ap_wifi_disconn_flag = FALSE;
             xSemaphoreGive(wifi_conn_notify_mutex);
 
-            SetCTESocketDisconnection();
+            CTE_OTA_WiFi_disassociated();
         }
 
         /* loop time delay : 10 msec */

@@ -43,9 +43,8 @@
 #include "da16x_compile_opt.h"
 #pragma GCC diagnostic ignored "-Wrestrict"
 
-#include "sys_specific.h"
-
 #include "user_cte.h"
+
 
 #if defined ( __SUPPORT_DPM_EXT_WU_MON__ )
 #define DELAY_TICK_TO_RCV_AT_CMD           20    // 200 msec
@@ -79,7 +78,7 @@ typedef struct _list_node {
     struct _list_node *pnext;
 } list_node;
 
-ota_update_sflash_t DA16200MOD_fw_write;
+
 
 /**************************************************************************
  * Global Variables
@@ -264,699 +263,6 @@ static int atcmd_network_display_udps(const int cid, const char *prefix);
 static int atcmd_network_display(const int cid);
 static int atcmd_network_terminate_session(const int cid);
 
-//CSH: Create CTE control function
-
-static cte_status_t _status = eCTE_Socket_None;
-
-void CTEStatusSet(const cte_status_t status)
-{
-    CTE_DBG("%s(), %s -> %s\n", __func__, cte_status_str[_status], cte_status_str[status]);
-
-    _status = status;
-
-    if (eCTE_Socket_RST == status)
-        cte_ota_get_context()->nxp_conn_status = NXP_CONN_BREAK;
-}
-
-cte_status_t CTEStatusGet(void)
-{
-    return _status;
-}
-
-void SetCTESocketConnection(void)
-{
-    const uint32_t      server_port = 2300;
-    atcmd_sess_context  *ctx = NULL;
-
-    CTE_DBG("%s()\n", __func__);
-
-    ctx = atcmd_transport_create_context(ATCMD_SESS_TCP_SERVER);
-
-    if (!ctx) {
-        ATCMD_DBG("[%s:%d]Failed to create tcp server context\n", __func__, __LINE__);
-        return ;
-    }
-
-    int                 ret = 0;
-
-    ret = atcmd_network_connect_tcps(ctx, server_port, 1);
-
-    if (0 == ret) {
-        const atcmd_tcps_config     *conf = ctx->ctx.tcps->conf;
-
-        DA16X_UNUSED_ARG(conf);
-
-        CTE_DBG("socket server created on %d.%d.%d.%d:%d\n",
-                    (ntohl(conf->local_addr.sin_addr.s_addr) >> 24) & 0xFF,
-                    (ntohl(conf->local_addr.sin_addr.s_addr) >> 16) & 0xFF,
-                    (ntohl(conf->local_addr.sin_addr.s_addr) >>  8) & 0xFF,
-                    (ntohl(conf->local_addr.sin_addr.s_addr)      ) & 0xFF,
-                    (ntohs(conf->local_addr.sin_port)));
-        return ;
-    }
-    else {
-        CTE_DBG("socket server connection failed\n");
-
-        if (ctx) {
-            atcmd_transport_delete_context(ctx->cid);
-            ctx = NULL;
-        }
-    }
-}
-
-void SetCTESocketDisconnection(void)
-{
-    CTE_DBG("%s()\n", __func__);
-
-	atcmd_network_terminate_session(0xFF);
-
-    CTE_OTA_TaskHandler = NULL;
-}
-
-void CTESendDataToSocketServer(atcmd_tcps_cli_context *cli_ctx, const void *data, const size_t data_len)
-{
-    CTE_DBG_PRINT_TS();
-    CTE_DBG("%s()\n", __func__);
-
-    int     ret = send(cli_ctx->socket, data, data_len, 0);
-
-    if (ret <= 0) {
-        CTE_DBG("Failed to send tcp data to tcp client(%d,%d.%d.%d.%d:%d)\n", ret,
-                (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 24) & 0xFF,
-                (ntohl(cli_ctx->addr.sin_addr.s_addr) >> 16) & 0xFF,
-                (ntohl(cli_ctx->addr.sin_addr.s_addr) >>  8) & 0xFF,
-                (ntohl(cli_ctx->addr.sin_addr.s_addr)      ) & 0xFF,
-                (ntohs(cli_ctx->addr.sin_port)));
-    }
-    else {
-        memory_dump(data, data_len);
-    }
-}
-
-static ota_packet_type_t    _pkt_exp = OTA_PKT_TYPE_AMD;
-
-void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload)
-{
-    const ota_packet_type_t     p_type = (ota_packet_type_t) payload[0];
-    const ota_type_t            o_type = (ota_type_t) payload[1];
-    const cte_status_t          current_status = CTEStatusGet();
-
-    if ( (current_status != eCTE_Socket_WaitingAck) &&
-         (current_status != eCTE_Socket_RT) &&
-         (current_status != eCTE_Socket_RST) )
-    {
-    	//duplicate response, just ignore
-        return;
-    }
-
-    if ((p_type >= NUM_PTYPE) || (o_type >= NUM_OTA_TYPE) || (p_type != _pkt_exp)) {
-        CTE_DBG_XXX();
-        CTE_DBG("%s:%d, p_type = %d, o_type = %d\n", __func__, __LINE__, p_type, o_type);
-        memory_dump(payload, 16);
-        return;
-    }
-
-    CTE_DBG_PRINT_TS();
-    CTE_DBG("%s(), p_type = %s, o_type = %s\n", __func__, ota_packet_type_str[p_type], ota_type_str[o_type]);
-
-    switch (p_type) {
-        case OTA_PKT_TYPE_AMD : {
-            ota_packet_amd_t    *p = (ota_packet_amd_t *) payload;
-            memory_dump(p, sizeof(*p));
-
-            memset(ctx, 0, sizeof(*ctx));
-            memset(&DA16200MOD_fw_write, 0, sizeof(ota_update_sflash_t));
-            ctx->total_size = ntohl(p->total_size);
-            ctx->total_packet = ntohl(p->total_packet);
-
-            CTE_DBG("AMD : total_size = 0x%08X (%ld), total_packet = 0x%04X (%ld)\n", ctx->total_size, ctx->total_size, ctx->total_packet, ctx->total_packet);
-
-            CTE_DBG("Ota Type = %d\n", p->ota_type);
-
-            switch (p->ota_type)
-            {
-            case OTA_TYPE_NXP:
-            	configASSERT(NXP_CONN_NONE == ctx->nxp_conn_status);
-				CTE_DBG("+META:%08ld\n", ctx->total_size);
-				PRINTF_ATCMD("\r\n+META:%08ld\r\n", ctx->total_size);
-				ctx->nxp_conn_status = NXP_CONN_ERASE_SENT;
-
-            	ota_type_set(OTA_TYPE_NXP);
-				CTEStatusSet(eCTE_Socket_AMD);
-            	break;
-
-            case OTA_TYPE_WIFI:
-            {
-            	uint32_t boot_addr = get_cur_boot_index() ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
-				DA16200MOD_fw_write.total_length = ctx->total_size;
-				DA16200MOD_fw_write.sflash_addr = boot_addr;
-
-            	ota_type_set(OTA_TYPE_WIFI);
-				CTEStatusSet(eCTE_Socket_AMD);
-            	break;
-			}
-
-            default:
-            	configASSERT(0);
-            	CTEStatusSet(eCTE_Socket_Close);
-            }
-
-            break;
-        }
-
-        case OTA_PKT_TYPE_AST :
-            mbedtls_md5_init(&ctx->md5_ctx);
-            mbedtls_md5_starts_ret(&ctx->md5_ctx);
-
-            CTEStatusSet(eCTE_Socket_AST);
-
-            break;
-
-        case OTA_PKT_TYPE_ART : {
-            ota_packet_art_t    *p = (ota_packet_art_t *) payload;
-            uint32_t            cur_packet = ntohl(p->packet_number);
-            uint16_t            cur_size = (uint16_t) ntohl(p->packet_size);
-
-            if (cur_packet != ctx->rx_id)
-                return;
-
-            if (cur_size > OTA_CTE_APP_LEN)
-                return;
-
-#ifdef CTE_DBG_DUMP_PARTIAL
-            memory_dump(p, 16);     // we dont have to dump full payload
-#else
-            memory_dump(p, sizeof(*p));
-#endif
-
-            CTE_DBG("cur_packet = %ld, cur_size = %ld, total_packet = %ld\n", cur_packet, cur_size, ctx->total_packet);
-
-            uint8_t     checksum = 0;
-
-            for (size_t i = 0; i < cur_size; i++) {
-                checksum ^= p->payload[i];
-            }
-
-            if (checksum == p->checksum) {
-                ctx->retx_cnt = 0;
-
-                mbedtls_md5_update_ret(&ctx->md5_ctx, p->payload, cur_size);
-
-                if (OTA_TYPE_NXP == ota_type_get()) {
-                    cte_ota_queue_elem_t    *e = (cte_ota_queue_elem_t *) pvPortMalloc(sizeof(cte_ota_queue_elem_t));
-                    configASSERT(e);
-
-                    e->ptr  = (uint8_t *) pvPortMalloc(cur_size);
-                    configASSERT(e->ptr);
-                    CTE_DBG("alloc : ptr=0x%08x, size=%d\n", e->ptr, cur_size);
-
-                    e->id   = (uint16_t) cur_packet;
-                    e->len  = cur_size;
-                    e->slot = 0;
-
-                    memcpy(e->ptr, p->payload, cur_size);
-
-                    xQueueSend(ctx->q_p, &e, portMAX_DELAY);
-
-                    CTE_DBG("enqueue, id = %ld, len = %ld, q_len = %ld\n", e->id, e->len, uxQueueMessagesWaiting(ctx->q_p));
-
-//                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-                    if (0 == cur_packet) {
-                        ctx->nxp_conn_status = NXP_CONN_NONE;
-                        nxp_load_fw(pFWPACKAGE);
-                    }
-                }
-                else if (OTA_TYPE_WIFI == ota_type_get()) {
-                    uint8_t         *ptr = p->payload;
-                    size_t          remain = cur_size;
-
-                    do {
-                        size_t      len = configMIN(remain, OTA_SFLASH_BUF_SZ);
-
-                        CTE_DBG("write flash addr = 0x%08x, length = %ld\n", ptr, len);
-                        ota_update_write_sflash(&DA16200MOD_fw_write, ptr, len);
-
-                        ptr += len;
-                        remain -= len;
-                    } while (remain > 0);
-                }
-                else {
-                    configASSERT(0);
-                }
-
-                CTEStatusSet(eCTE_Socket_ART);
-            }
-            else {
-                CTE_DBG(MAGENTA_COLOR "checksum mismatch ! packet number = %ld, packet checksum = 0x%02X, calculated checksum = 0x%02X\n" CLEAR_COLOR,
-                        cur_packet, p->checksum, checksum);
-
-#if 0
-                memory_dump(p, sizeof(*p));
-#endif
-
-                ctx->retx_cnt++;
-
-                if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
-                    CTEStatusSet(eCTE_Socket_RST);
-                }
-                else {
-                    CTEStatusSet(eCTE_Socket_RT);
-                }
-            }
-        }
-            break;
-
-        case OTA_PKT_TYPE_ARST :
-            CTEStatusSet(eCTE_Socket_ARST);
-            break;
-
-        case OTA_PKT_TYPE_AFH : {
-            ota_packet_afh_t    *p = (ota_packet_afh_t *) payload;
-
-            memory_dump(p, sizeof(*p));
-
-            uint8_t     md5sum[16];
-
-            mbedtls_md5_finish_ret(&ctx->md5_ctx, md5sum);
-            mbedtls_md5_free(&ctx->md5_ctx);
-
-            CTE_DBG("our md5sum = ");
-            md5dump(md5sum);
-            CTE_DBG("app md5sum = ");
-            md5dump(p->md5sum);
-
-            if (0 == memcmp(md5sum, p->md5sum, sizeof(md5sum))) {
-                if (OTA_TYPE_NXP == ota_type_get()) {
-                    char    buf[40];
-                    char    *ptr = &buf[0];
-
-                    strcpy(ptr, "+MD5:");
-                    ptr += strlen("+MD5:");
-
-                    for (size_t i = 0; i < sizeof(md5sum); i++) {
-                        sprintf(ptr, "%02x", md5sum[i]);
-                        ptr += 2;
-                    }
-
-                    CTE_DBG("%s\n", buf);
-
-                    PRINTF_ATCMD("\r\n%s\r\n", buf);
-
-                    ctx->nxp_conn_status = NXP_CONN_MD5_SENT;
-                }
-
-                CTEStatusSet(eCTE_Socket_AFH);
-            }
-            else {
-                CTE_DBG("md5sum mismatch !!!\n");
-
-                CTEStatusSet(eCTE_Socket_RST);
-            }
-        }
-            break;
-
-        default :
-            CTE_DBG_XXX();
-            CTE_DBG("%s:%d\n", __func__, __LINE__);
-    }
-}
-
-void cte_ota_ctx_queue_cleanup(cte_ota_ctx_t *ctx)
-{
-    if (!ctx)
-        return;
-
-    /*
-     * ctx->e_working might already be freed, dont ASSERT() here
-     * scenario as following :
-     * the last octet of the file stream is located at the latest
-     *    slot of the data packet from app. when it is ACKed by NXP,
-     *    nxp_ota_slot_inc() freed that data packet
-     */
-    if (ctx->e_working) {
-        configASSERT(ctx->e_working->ptr);
-
-        if (ctx->e_working->ptr) {
-            vPortFree(ctx->e_working->ptr);
-            CTE_DBG("free  : ptr=0x%08x\n", ctx->e_working->ptr);
-            ctx->e_working->ptr = NULL;
-        }
-
-        vPortFree(ctx->e_working);
-        ctx->e_working = NULL;
-    }
-
-    // q_p not exist? just stop cleaning up
-    if (ctx->q_p == NULL) return;
-
-    while (1) {
-        cte_ota_queue_elem_t    *e = NULL;
-
-        xQueueReceive(ctx->q_p, &e, portNO_DELAY);
-
-        if (e) {
-            configASSERT(e->ptr);
-
-            if (e->ptr) {
-                vPortFree(e->ptr);
-                CTE_DBG("free  : ptr=0x%08x\n", e->ptr);
-                e->ptr = NULL;
-            }
-
-            vPortFree(e);
-        }
-        else {
-            break;
-        }
-    }
-
-    vQueueDelete(ctx->q_p);
-    ctx->q_p = NULL;
-}
-
-/*
- * under AT-CMD-TCPC task, priority OS_TASK_PRIORITY_USER + 7
- * call path : atcmd_tcpc_task_entry() -> CTESocketCtrlFlow()
- */
-int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx)
-{
-	static uint32_t         timeout = 0;
-    static cte_status_t     StatusPrev = eCTE_Socket_None;
-
-#ifdef ENABLE_CTE_DBG
-    static int message_supression = 0;
-    bool print_msg = false;
-
-    //lower the frequency of "CTESocketCtrlFlow(): s = WaitingAck"
-    if (CTEStatusGet() == eCTE_Socket_WaitingAck)
-    {
-    	if (message_supression == 0) print_msg = true;
-
-    	message_supression++;
-    	if (message_supression >= 11) message_supression = 0;
-    }
-    else
-    {
-    	message_supression = 0;
-    	print_msg = true;
-    }
-
-    if (print_msg)
-    {
-    	CTE_DBG_PRINT_TS();
-		CTE_DBG("%s(): s = %s\n", __func__, cte_status_str[CTEStatusGet()]);
-    }
-#endif
-
-    switch(CTEStatusGet())
-	{
-        case eCTE_Socket_MD: {
-            ota_packet_md_t     p;
-
-            vTaskDelay(200);
-
-            p.type = OTA_PKT_TYPE_MD;
-            p.ota_type = 0;
-            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
-            _pkt_exp = OTA_PKT_TYPE_AMD;
-            ota_type_invalidate();
-
-            CTEStatusSet(eCTE_Socket_WaitingAck);
-            timeout = 0;
-            StatusPrev = eCTE_Socket_MD;
-        }
-            break;
-        case eCTE_Socket_AMD:
-            if (OTA_TYPE_NXP == ota_type_get())
-            {
-                CTEStatusSet(eCTE_Socket_WaitingAck);
-                timeout = 0;
-            }
-            else if (OTA_TYPE_WIFI == ota_type_get())
-                CTEStatusSet(eCTE_Socket_ST);
-            else
-                configASSERT(0);
-
-            StatusPrev = eCTE_Socket_AMD;
-            break;
-        case eCTE_Socket_ST: {
-            ota_packet_st_t     p;
-
-            p.type = OTA_PKT_TYPE_ST;
-            p.ota_type = 0;
-            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
-            _pkt_exp = OTA_PKT_TYPE_AST;
-
-            CTEStatusSet(eCTE_Socket_WaitingAck);
-            timeout = 0;
-            StatusPrev = eCTE_Socket_ST;
-        }
-            break;
-        case eCTE_Socket_AST:
-            atq_result = 0;
-
-            if (OTA_TYPE_NXP == ota_type_get()) {
-                configASSERT(NULL == ctx->q_p);
-                ctx->q_p = xQueueCreate(OTA_CTE_BUFFER_QUEUE_SIZE, sizeof(cte_ota_queue_elem_t *));
-            }
-            else if (OTA_TYPE_WIFI == ota_type_get()) {
-                ;
-            }
-            else {
-                configASSERT(0);
-            }
-
-            CTEStatusSet(eCTE_Socket_RT);
-            StatusPrev = eCTE_Socket_AST;
-            break;
-        case eCTE_Socket_RT: {
-            ota_packet_rt_t     p;
-
-            p.type = OTA_PKT_TYPE_RT;
-            p.ota_type = 0;
-            p.packet_number = htonl(ctx->rx_id);
-            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
-            _pkt_exp = OTA_PKT_TYPE_ART;
-
-            CTEStatusSet(eCTE_Socket_WaitingAck);
-            timeout = 0;
-            StatusPrev = eCTE_Socket_RT;
-            CTE_DBG("CSH: eCTE_Socket_RT, PacketCnt: %d\n", ctx->rx_id);
-        }
-            break;
-        case eCTE_Socket_ART:
-            if (0 == ctx->retx_cnt) {
-                ctx->rx_id++;
-            }
-            else {
-                // rx_id remains
-                ;
-            }
-
-            if(ctx->rx_id >= ctx->total_packet)
-            {
-                if (OTA_TYPE_NXP == ota_type_get()) {
-                    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-                }
-
-                CTEStatusSet(eCTE_Socket_FH);
-            }
-            else
-            {
-                CTEStatusSet(eCTE_Socket_RT);
-            }
-
-            StatusPrev = eCTE_Socket_ART;
-            CTE_DBG("CSH: eCTE_Socket_ART, PacketCnt: %d\n", ctx->rx_id);
-            break;
-        case eCTE_Socket_RST: {
-            /* we (CTE & e-Novia) agree that RST procedure is not necessary */
-            CTEStatusSet(eCTE_Socket_ARST);
-        }
-            break;
-        case eCTE_Socket_ARST: {
-            if (OTA_TYPE_NXP == ota_type_get()) {
-                cte_ota_ctx_queue_cleanup(ctx);
-            }
-
-            mbedtls_md5_free(&ctx->md5_ctx);
-
-            memset(ctx, 0, sizeof(*ctx));
-            memset(&DA16200MOD_fw_write, 0, sizeof(ota_update_sflash_t));
-
-            CTEStatusSet(eCTE_Socket_Close);
-        }
-            break;
-        case eCTE_Socket_FH: {
-            ota_packet_fh_t     p;
-
-            p.type = OTA_PKT_TYPE_FH;
-            p.ota_type = 0;
-            CTESendDataToSocketServer(cli_ctx, &p, sizeof(p));
-            _pkt_exp = OTA_PKT_TYPE_AFH;
-
-            CTEStatusSet(eCTE_Socket_WaitingAck);
-            timeout = 0;
-            StatusPrev = eCTE_Socket_FH;
-        }
-            break;
-        case eCTE_Socket_AFH: {
-            if (OTA_TYPE_NXP == ota_type_get()) {
-                cte_ota_ctx_queue_cleanup(ctx);
-
-                CTEStatusSet(eCTE_Socket_WaitingAck);
-                StatusPrev = eCTE_Socket_AFH;
-            }
-            else if (OTA_TYPE_WIFI == ota_type_get()) {
-                int         boot_index = get_cur_boot_index();
-                uint32_t    boot_addr = boot_index ? SFLASH_RTOS_0_BASE : SFLASH_RTOS_1_BASE;
-
-                if (ota_update_sflash_crc(boot_addr) > 0) {
-                    UINT    len = 80;
-                    UCHAR   *rd_buf = (UCHAR *) pvPortMalloc(len);
-
-                    configASSERT(rd_buf);
-
-                    if (!ota_update_read_flash(boot_addr, rd_buf, len)) {
-                        if (!ota_update_check_version(OTA_TYPE_RTOS, rd_buf, len)) {
-                            memset(&DA16200MOD_fw_write, 0, sizeof(ota_update_sflash_t));
-                            ota_update_toggle_boot_index();
-                            PRINTF("DA16200 will reboot after 2 sec...\n");
-                            vTaskDelay(pdMS_TO_TICKS(2000));
-                            reboot_func(SYS_REBOOT_POR);
-                        }
-                        else {
-                            CTE_DBG_XXX();
-                            CTE_DBG("OTA WiFi firmware update failed\n");
-                        }
-                    }
-                    else {
-                        CTE_DBG_XXX();
-                        CTE_DBG("OTA WiFi read flash failed\n");
-                    }
-
-                    vPortFree(rd_buf);
-                }
-                else {
-                    CTE_DBG_XXX();
-                    CTE_DBG("OTA WiFi CRC failed\n");
-                }
-
-                CTEStatusSet(eCTE_Socket_Close);
-                StatusPrev = eCTE_Socket_AFH;
-            }
-        }
-            break;
-        case eCTE_Socket_NAK:
-            CTEStatusSet(eCTE_Socket_None);
-            StatusPrev = eCTE_Socket_NAK;
-            break;
-        case eCTE_Socket_Close:
-            CTEStatusSet(eCTE_Socket_None);
-            StatusPrev = eCTE_Socket_Close;
-            return -1;
-        case eCTE_Socket_WaitingAck:
-        {
-        	struct pollfd plfds[1];
-        	plfds[0].fd = cli_ctx->socket;
-        	plfds[0].events = POLLIN;
-
-        	if (poll(plfds, 1, 50) <= 0)
-        	{
-                switch (StatusPrev) {
-                    /*
-                     * similar timeout handling
-                     * the only difference is that RST max retx -> close
-                     *                             others -> RST
-                     */
-                    case eCTE_Socket_MD :
-                    case eCTE_Socket_ST :
-                    case eCTE_Socket_RT :
-                    case eCTE_Socket_RST :
-                    case eCTE_Socket_FH :
-                    {
-                        if (timeout++ > CTE_OTA_TIMEOUT) {
-                            timeout = 0;
-                            ctx->retx_cnt++;
-
-                            CTE_DBG("WaitingAck (%s), timeout = %d\n", cte_status_str[StatusPrev], CTE_OTA_TIMEOUT);
-
-                            if (ctx->retx_cnt >= CTE_OTA_RETX_MAX) {
-                                ctx->retx_cnt = 0;
-
-                                cte_status_t    next;
-
-                                if (eCTE_Socket_RST != StatusPrev)
-                                    next = eCTE_Socket_RST;
-                                else
-                                    next = eCTE_Socket_Close;
-
-                                CTEStatusSet(next);
-                                CTE_DBG("%s -> %s, retx exceeded %d\n", cte_status_str[StatusPrev], cte_status_str[next], CTE_OTA_RETX_MAX);
-                            }
-                            else {
-                                CTEStatusSet(StatusPrev);
-                                CTE_DBG("%s retx = %d\n", cte_status_str[StatusPrev], ctx->retx_cnt);
-                            }
-                        }
-                    }
-                        break;
-
-                    case eCTE_Socket_AMD : {
-                        switch (ctx->nxp_conn_status) {
-                            case NXP_CONN_ERASE_SENT :
-                                break;
-                            case NXP_CONN_ERASE_OK :
-                                CTEStatusSet(eCTE_Socket_ST);
-                                ctx->nxp_conn_status = NXP_CONN_NONE;
-                                break;
-                            case NXP_CONN_ERASE_NG :
-                                CTEStatusSet(eCTE_Socket_RST);
-                                ctx->nxp_conn_status = NXP_CONN_NONE;
-                                break;
-                            default :
-                                configASSERT(0);
-                                break;
-                        }
-                    }
-                        break;
-
-                    case eCTE_Socket_AFH : {
-                        switch (ctx->nxp_conn_status) {
-                            case NXP_CONN_MD5_SENT :
-                                break;
-                            case NXP_CONN_MD5_OK :
-                                CTEStatusSet(eCTE_Socket_Close);
-                                ctx->nxp_conn_status = NXP_CONN_NONE;
-                                break;
-                            case NXP_CONN_MD5_NG :
-                                CTEStatusSet(eCTE_Socket_Close);
-                                ctx->nxp_conn_status = NXP_CONN_NONE;
-                                break;
-                            default :
-                                configASSERT(0);
-                                break;
-                        }
-                    }
-                        break;
-
-                    default :
-                        // nothing
-                        ;
-                }
-        	}
-        }
-            break;
-        case eCTE_Socket_None:
-        default:
-            break;
-	}
-
-    return 0;
-}
-//CSH: End of create CTE control function
-
 #else ////////////////////////////////////
 
 static int atcmd_network_check_network_ready(const char *module, unsigned int timeout);
@@ -1016,6 +322,7 @@ static int  atcmd_is_valid_ip4_addr_uart(char *str_ip);
 static int atcmd_transport_ssl_do_wr(char *cid_str, char *dst_ip_str, char *dst_port_str, char *datalen_str, char *data);
 #endif // __SUPPORT_ATCMD_TLS__
 #endif // __ATCMD_IF_UART1__ || __ATCMD_IF_UART2__
+
 
 /*
  * AT COMMANDs
@@ -1518,7 +825,6 @@ static void atcmd_mqtt_msg_qos0_dpm_rsp_handle(void)
 #endif // __SUPPORT_MQTT__
 
 #if defined ( __ATCMD_IF_UART1__ ) || defined ( __ATCMD_IF_UART2__ )
-
 static void monitor_atcmd(void)
 {
     atcmd_error_code    major_err_code = AT_CMD_ERR_CMD_OK;
@@ -1592,16 +898,8 @@ static void monitor_atcmd(void)
     /* For User AT-CMD help */
     reg_user_atcmd_help_cb();
 
-    generate_crc_table();
-
     while (1) {
         memset(atcmd_uart_mon_buf, 0, USER_ATCMD_BUF);
-
-        cte_ota_ctx_t   *ctx = cte_ota_get_context();
-
-        if (NXP_CONN_NONE != ctx->nxp_conn_status) {
-            CTE_DBG("%s(), conn_status = %s\n", __func__, nxp_conn_status_str[ctx->nxp_conn_status]);
-        }
 
         major_err_code = gets_atcmd_uart(atcmd_uart_mon_buf);
 
@@ -1615,8 +913,9 @@ static void monitor_atcmd(void)
             if (atcmd_uart_mon_buf[0] == ESCAPE_CODE) {
                 /* DATA MODE */
                 esc_cmd_parser(atcmd_uart_mon_buf);
-            } else if (atcmd_uart_mon_buf[0] == 0x5a) {	// response token of RT firmware update
-            	nxpcmd_parser(atcmd_uart_mon_buf);
+            } else if (atcmd_uart_mon_buf[0] == CTE_NXP_COMMAND_CODE) {
+            	//parse CTE Nxp OTA command
+            	nxpcmd_parser((const uint8_t *)atcmd_uart_mon_buf);
 #if defined (__SUPPORT_ATCMD_TLS__)
             } else if (strncmp(atcmd_uart_mon_buf, ATCMD_TLS_WR_CMD, strlen(ATCMD_TLS_WR_CMD)) == 0) {
                 major_err_code = command_parser_tls_wr(atcmd_uart_mon_buf);
@@ -2155,19 +1454,31 @@ static int gets_atcmd_uart(char *buf)
             continue;
         }
 
-        if(ch == 0x5a)
+        //CTE Nxp OTA command
+        if(ch == CTE_NXP_COMMAND_CODE && buf[0] == '\0')
         {
-            if (buf[0] != '\0')
-            {
-                return AT_CMD_ERR_WRONG_ARGUMENTS;
-            }
+        	buf[0] = ch;
+        	buf[1] = getchar_atcmd_uart(portMAX_DELAY);
 
-            for (uint8_t idx = 0; idx < 4; idx++)
-            {
-                buf[idx] = ch;
-                ch = getchar_atcmd_uart(portNO_DELAY); //portMAX_DELAY
-            }
-            UART_FLUSH(atcmd_uart);
+        	//special process for 5A A1 5A A4
+        	//雖然這樣寫很不健康但為了實作協議的格式只好這樣了
+        	if ((uint8_t)buf[1] == 0xA1)
+        	{
+        		buf[2] = getchar_atcmd_uart(portNO_DELAY);
+        		if (buf[2] == 0x5A)
+        		{
+        			buf[3] = getchar_atcmd_uart(portMAX_DELAY);
+        		}
+        		else
+        		{
+        			buf[3] = 0;
+        		}
+        	}
+        	else
+        	{
+        		buf[2] = 0;
+        		buf[3] = 0;
+        	}
 
             return AT_CMD_ERR_CMD_OK;
         }
@@ -2895,7 +2206,6 @@ int atcmd_standard(int argc, char *argv[])
 
         status = factory_reset(0);
         reboot_func(SYS_REBOOT);
-
     } else {
         status = AT_CMD_ERR_UNKNOWN_CMD;
     }
@@ -9251,7 +8561,6 @@ int atcmd_transport(int argc, char *argv[])
     }
     // AT+TRTC
     else if (strcasecmp(argv[0] + 5, "TC") == 0) {
-//    	PRINTF_ATCMD("\r\nTRTC 1\r\n");
         /* AT+TRTC=<server_ip>,<server_port>(,<local_port>) */
         if (argc == 4 || argc == 3) {
             atcmd_sess_context *ctx = NULL;
@@ -16399,7 +15708,8 @@ void atcmd_asynchony_event(int index, char *buf)
         break;
 
     case 2:    //ATC_EV_APCONN:
-        PRINTF_ATCMD("\r\n+WFCST:%s\r\n", buf);
+#if 0
+    	PRINTF_ATCMD("\r\n+WFCST:%s\r\n", buf);
 
         for (int i = 0; i < 6; i++) {
             if (strlen(atcmd_mac_table[i]) == 0) {
@@ -16407,11 +15717,12 @@ void atcmd_asynchony_event(int index, char *buf)
                 break;
             }
         }
-
+#endif
         break;
 
     case 3:    //ATC_EV_APDISCONN:
-        PRINTF_ATCMD("\r\n+WFDST:%s\r\n", buf);
+#if 0
+    	PRINTF_ATCMD("\r\n+WFDST:%s\r\n", buf);
 
         for (int i = 0; i < 6; i++) {
             if (strcmp(atcmd_mac_table[i], buf) == 0) {
@@ -16419,6 +15730,7 @@ void atcmd_asynchony_event(int index, char *buf)
                 break;
             }
         }
+#endif
         break;
 
 #if defined ( __SUPPORT_MQTT__ )

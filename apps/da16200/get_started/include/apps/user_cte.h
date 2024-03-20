@@ -1,13 +1,18 @@
 #pragma once
 
 #include "common_def.h"
-#include "atcmd_tcp_server.h"
-
+#include "atcmd.h"
 #include "mbedtls/md5.h"
 
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#define CTE_OTA_SERVER_PORT 	2300
 
-#undef ENABLE_CTE_DBG
+#define CTEVER_P    "P02"
+#define CTEVER_T    "T00"
+
+#ifndef RELEASE_BUILD
+#  define ENABLE_CTE_DBG
+#endif
+
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
 
@@ -21,11 +26,18 @@
 #define memory_dump(p, l)       CTE_hex_dump(p, l)
 #define md5dump(x)              memory_dump(x, 16)
 #define CTE_DBG_XXX()           CTE_DBG(RED_COLOR "XXX\n" CLEAR_COLOR)
+#define CTE_DBG_FATAL(...)		\
+do { \
+	CTE_DBG(RED_COLOR); \
+	CTE_DBG(__VA_ARGS__); \
+	CTE_DBG(CLEAR_COLOR); \
+} while(0)
 #else
 #define CTE_DBG(...)            do { } while (0)
 #define memory_dump(p, l)       do { } while (0)
 #define md5dump(x)              do { } while (0)
-#define CTE_DBG_XXX(...)        do { } while (0)
+#define CTE_DBG_XXX()           do { } while (0)
+#define CTE_DBG_FATAL(...)		do { } while (0)
 #endif
 
 #ifdef CTE_DBG_TIME
@@ -47,92 +59,19 @@ extern void CTE_OTA_NXP_INIT(void);
 extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
 extern void CTE_OTA_NXP_RESET(void);
 
-extern TaskHandle_t         CTE_OTA_TaskHandler;
+
+#define CTE_NXP_COMMAND_CODE 0x5A
 
 extern int atcmd_wifi_ctrl(int argc, char *argv[]);
-
-#define CTEVER_P    "P01"
-#define CTEVER_T    "T00"
-
 extern int atcmd_ctever(int argc, char *argv[]);
-
-extern int atcmd_ota_type(int argc, char *argv[]);
-#ifdef ENABLE_CTE_DBG
-extern void cmd_ota_type(int argc, char *argv[]);
-#endif
-
 extern int atcmd_nxp_conn(int argc, char *argv[]);
+extern int atcmd_ota_type(int argc, char *argv[]);
 
-#define SCRIPT_ENUM                         \
-    ENUM_ENTRY(pNone),                      \
-    ENUM_ENTRY(pGetProperty01_1),           \
-    ENUM_ENTRY(pFLASHLOADER),               \
-    ENUM_ENTRY(pGetProperty01_2),           \
-    ENUM_ENTRY(pFillMemory1),               \
-    ENUM_ENTRY(pFillMemory2),               \
-    ENUM_ENTRY(pFillMemory3),               \
-    ENUM_ENTRY(pConfigureMemory_2),         \
-    ENUM_ENTRY(pFlashEraseRegionCode1000),  \
-    ENUM_ENTRY(pConfigureMemoryCode),       \
-    ENUM_ENTRY(pGetPropertyCode),           \
-    ENUM_ENTRY(pWriteMemoryCode),           \
-    ENUM_ENTRY(pFWCONFIG),                  \
-    ENUM_ENTRY(pFWPACKAGE),                 \
-    ENUM_ENTRY(UNKNOWN)
 
-#define ENUM_ENTRY(x)   x
 
-typedef enum _cte_ota_script_t {
-    SCRIPT_ENUM,
-    NUM_SCRIPTS
-} cte_ota_script_t;
-
-#undef ENUM_ENTRY
-
-extern const char *cte_ota_script_str[];
-
-extern void nxp_script_select(cte_ota_script_t script_name);
-
-#define STATUS_ENUM         \
-    ENUM_ENTRY(None),       \
-    ENUM_ENTRY(MD),         \
-    ENUM_ENTRY(AMD),        \
-    ENUM_ENTRY(ST),         \
-    ENUM_ENTRY(AST),        \
-    ENUM_ENTRY(RT),         \
-    ENUM_ENTRY(ART),        \
-    ENUM_ENTRY(RST),        \
-    ENUM_ENTRY(ARST),       \
-    ENUM_ENTRY(FH),         \
-    ENUM_ENTRY(AFH),        \
-    ENUM_ENTRY(NAK),        \
-    ENUM_ENTRY(Close),      \
-    ENUM_ENTRY(WaitingAck)
-
-#define ENUM_ENTRY(x)   eCTE_Socket_ ## x
-
-typedef enum _cte_status_t {
-    STATUS_ENUM,
-    NUM_STATUS
-} cte_status_t;
-
-#undef ENUM_ENTRY
-
-extern const char *cte_status_str[];
-
-#define NXP_OTA_UART_WRITE(x)   NXP_OTA_UART_WRITE_N(x, sizeof(x))
-extern void NXP_OTA_UART_WRITE_N(const uint8_t *x, size_t n);
-
-#define NXP_OTA_MSG_APPEND(payload, idx, data)              \
-    do {                                                    \
-        payload[idx++] = (uint8_t) ( data        & 0xFF);   \
-        payload[idx++] = (uint8_t) ((data >>  8) & 0xFF);   \
-        payload[idx++] = (uint8_t) ((data >> 16) & 0xFF);   \
-        payload[idx++] = (uint8_t) ((data >> 24) & 0xFF);   \
-    } while (0)
-
-#define CTE_OTA_RETX_MAX        3
-#define CTE_OTA_TIMEOUT         22       // 1320 ms
+#define CTE_OTA_RETX_MAX        	99999
+#define CTE_FLASH_WRITE_RETX_MAX	5
+#define CTE_OTA_TIMEOUT         	pdMS_TO_TICKS(6000)
 
 #define PTYPE_ENUM      \
     ENUM_ENTRY(MD),     \
@@ -157,6 +96,7 @@ typedef enum _ota_packet_type_t {
 
 extern const char *ota_packet_type_str[];
 
+
 #define OTA_TYPE_ENUM   \
     ENUM_ENTRY(NXP),    \
     ENUM_ENTRY(WIFI)
@@ -171,33 +111,10 @@ typedef enum _ota_type_t {
 
 #undef ENUM_ENTRY
 
-extern const char *ota_type_str[];
-
-#define NXP_CONN_ENUM       \
-    ENUM_ENTRY(NONE),       \
-    ENUM_ENTRY(ERASE_SENT), \
-    ENUM_ENTRY(ERASE_OK),   \
-    ENUM_ENTRY(ERASE_NG),   \
-    ENUM_ENTRY(MD5_SENT),   \
-    ENUM_ENTRY(MD5_OK),     \
-    ENUM_ENTRY(MD5_NG),     \
-    ENUM_ENTRY(BLOCK_DONE), \
-    ENUM_ENTRY(BREAK)
-
-#define ENUM_ENTRY(x)       NXP_CONN_ ## x
-
-typedef enum _nxp_conn_status_t {
-    NXP_CONN_ENUM,
-    NUM_NXP_CONN
-} nxp_conn_status_t;
-
-extern const char *nxp_conn_status_str[];
-
-#undef ENUM_ENTRY
-
 extern void ota_type_set(ota_type_t t);
 extern ota_type_t ota_type_get(void);
 extern void ota_type_invalidate(void);
+
 
 /*
  *      app         wifi            NXP
@@ -279,40 +196,50 @@ typedef struct _ota_packet_afh_t {
     uint8_t     md5sum[16];
 } ota_packet_afh_t;
 
-//Timmy
-extern int g_ota_mcu_uart_idx;
+/*
+ * OTA_PKT_TYPE_RV
+ */
+typedef struct {
+    uint8_t     type;
+    uint8_t     ota_type;
+    char ver[6];
 
-typedef struct _cte_ota_queue_elem_t {
-    uint16_t    id;
-    uint16_t    len;
-    uint8_t     slot;
-    uint8_t     *ptr;
-} cte_ota_queue_elem_t;
+} ota_packet_rv_t;
 
-typedef struct _cte_ota_ctx_t {
-    uint32_t    total_size;
-    uint32_t    total_packet;
-    uint16_t    rx_id;
-    uint8_t     retx_cnt;
-    uint8_t     nxp_conn_status;
-    QueueHandle_t           q_p;
-    cte_ota_queue_elem_t    *e_working;
-    mbedtls_md5_context     md5_ctx;
-} cte_ota_ctx_t;
 
-extern cte_ota_ctx_t* cte_ota_get_context(void);
 
-extern int is_valid_socket_data(const ota_packet_type_t p_type, const int len);
+extern void cte_generate_crc_table(void);
 
-extern void CTEStatusSet(const cte_status_t status);
-extern cte_status_t CTEStatusGet(void);
-extern void SetCTESocketConnection(void);
-extern void SetCTESocketDisconnection(void);
-extern void CTESendDataToSocketServer(atcmd_tcps_cli_context *cli_ctx, const void *data, const size_t data_len);
-extern void CTEGetSocketServerData(cte_ota_ctx_t *ctx, UINT8 *payload);
-extern int CTESocketCtrlFlow(cte_ota_ctx_t *ctx, atcmd_tcps_cli_context *cli_ctx);
+extern void nxp_answer_ack();
+extern void nxp_ota_msg_data(const void *data, size_t length);
+extern void nxpcmd_parser(const uint8_t *in_buf);
 
-extern void generate_crc_table(void);
 
-extern void nxp_load_fw(cte_ota_script_t script_name);
-extern UINT nxpcmd_parser(char *in_buf);
+
+// CTE OTA Server task function
+extern void UserApp_CTE_OTA(void *);
+
+// notify CTE OTA Server task that WiFi-STA(user's mobile) is disconnected
+extern void CTE_OTA_WiFi_disassociated();
+
+// notify CTE OTA Server task that ERASE command to dashboard is done
+// erase_ok: *true* if received "AT+ERASEOK", *false* if received "AT+ERASENG"
+extern void CTE_OTA_Nxp_erase_answer(bool erase_ok);
+
+// notify CTE OTA Server task that WRITE_BLOCK command to dashboard is OK
+extern void CTE_OTA_Nxp_write_block_ok();
+
+// notify CTE OTA Server task that retry WRITE_BLOCK command to dashboard
+extern void CTE_OTA_Nxp_write_block_rewrite();
+
+// notify CTE OTA Server task that stop sending WRITE_BLOCK command to dashboard
+extern void CTE_OTA_Nxp_write_block_abort();
+
+// notify CTE OTA Server task that dashboard firmware write is finished
+extern void CTE_OTA_Nxp_flash_finished();
+
+// notify CTE OTA Server task of dashboard firmware MD5 check result
+// md5_ok: true* if received "AT+MD5OK", *false* if received "AT+MD5NG"
+extern void CTE_OTA_MD5_result(bool md5_ok);
+
+
