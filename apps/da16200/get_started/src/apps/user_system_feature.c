@@ -38,6 +38,7 @@
 #include "command.h"
 #include "lwip/err.h"
 #include "buildtime.h"
+#include "user_cte.h"
 
 #if defined (__SUPPORT_WIFI_PROVISIONING__)
 #include "app_provision.h"
@@ -1199,6 +1200,7 @@ void version_display(int argc, char *argv[])
     PRINTF("\t* - Serial Flash    : 4 MB\n");
     PRINTF("\t* - SDK Version     : V%d.%d.%d.%d %s\n", SDK_MAJOR, SDK_MINOR, SDK_REVISION, SDK_ENG_VER, SDK_NAME);
     PRINTF("\t* - F/W Version     : %s\n", rtos_img_ver_str);
+    PRINTF("\t* - CTE Version     : %s%s\n", CTEVER_P, CTEVER_T);
     PRINTF("\t* - F/W Build Time  : %s %s\n", __DATE__ , __TIME__ );
     PRINTF("\t* - Boot Index      : %d\n", boot_index);
     PRINTF("\t*\n");

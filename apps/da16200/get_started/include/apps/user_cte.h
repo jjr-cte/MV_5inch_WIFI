@@ -6,8 +6,8 @@
 
 #define CTE_OTA_SERVER_PORT 	2300
 
-#define CTEVER_P    "P02"
-#define CTEVER_T    "T00"
+#define CTEVER_P    "P02"	//must be 3 characters
+#define CTEVER_T    "T00"	//must be 3 characters
 
 #ifndef RELEASE_BUILD
 #  define ENABLE_CTE_DBG
