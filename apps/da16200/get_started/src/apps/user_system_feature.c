@@ -1203,6 +1203,11 @@ void version_display(int argc, char *argv[])
     PRINTF("\t* - CTE Version     : %s%s\n", CTEVER_P, CTEVER_T);
     PRINTF("\t* - F/W Build Time  : %s %s\n", __DATE__ , __TIME__ );
     PRINTF("\t* - Boot Index      : %d\n", boot_index);
+#ifdef RELEASE_BUILD
+    PRINTF("\t* - Build Config    : Release\n");
+#else
+    PRINTF("\t* - Build Config    : Debug\n");
+#endif
     PRINTF("\t*\n");
     PRINTF("\t******************************************************\n");
     PRINTF("\n");
