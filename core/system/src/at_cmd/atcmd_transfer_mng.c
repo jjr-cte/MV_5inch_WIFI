@@ -428,14 +428,19 @@ void PRINTF_ATCMD(const char *fmt, ...)
 #if	defined(__ATCMD_IF_UART1__)
 
 #ifndef RELEASE_BUILD
-	if (len > 30)
+#define MAX_DUMP_LENGTH 50
+#define STRINGIFY(x) #x
+#define NUMSTR(x) STRINGIFY(x)
+	if (len > MAX_DUMP_LENGTH)
 	{
-		PRINTF("\033[35m%u[%.30s\033[1;30m...\033[0m\n", len, atcmd_print_buf);
+		PRINTF("\033[35m%u[%." NUMSTR(MAX_DUMP_LENGTH) "s\033[37m...\033[0m\n", len, atcmd_print_buf);
 	}
 	else
 	{
 		PRINTF("\033[35m%u[%s]\033[0m\n", len, atcmd_print_buf);
 	}
+#undef STRINGIFY
+#undef NUMSTR
 #endif
 
 	UART_WRITE(uart1, atcmd_print_buf, len);

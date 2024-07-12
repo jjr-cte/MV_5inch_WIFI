@@ -124,6 +124,7 @@ const app_task_info_t    user_apps_table[] = {
 #endif    // __SUPPORT_WIFI_PROVISIONING__
 
   { "CTE_OTA", UserApp_CTE_OTA,             768, (OS_TASK_PRIORITY_USER+3), TRUE,  FALSE, UNDEF_PORT, RUN_AP_MODE},
+  { "DRMonitor", UserApp_DRM_Monitor,       256, (OS_TASK_PRIORITY_USER+4), TRUE,  FALSE, UNDEF_PORT, RUN_ALL_MODE},
 
   { NULL,    NULL,    0, 0, FALSE, FALSE, UNDEF_PORT, 0    }
 };

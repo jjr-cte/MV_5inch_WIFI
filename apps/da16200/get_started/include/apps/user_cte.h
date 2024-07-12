@@ -4,17 +4,22 @@
 #include "atcmd.h"
 #include "mbedtls/md5.h"
 
-#define CTE_OTA_SERVER_PORT 	2300
 
-#define CTEVER_P    "P02"	//must be 3 characters
+#define CTE_OTA_SERVER_PORT 		2300
+#define CTE_OTA_RETX_MAX        	99999
+#define CTE_FLASH_WRITE_RETX_MAX	5
+#define CTE_OTA_TIMEOUT         	pdMS_TO_TICKS(6000)
+
+#define CTEVER_P    "P03"	//must be 3 characters
 #define CTEVER_T    "T00"	//must be 3 characters
-
-#ifndef RELEASE_BUILD
-#  define ENABLE_CTE_DBG
-#endif
 
 #define CTE_DBG_DUMP_PARTIAL
 #define CTE_DBG_TIME
+
+
+#ifndef RELEASE_BUILD
+#define ENABLE_CTE_DBG
+#endif
 
 #ifndef ENABLE_CTE_DBG
 #undef CTE_DBG_DUMP_PARTIAL
@@ -46,32 +51,8 @@ do { \
 #define CTE_DBG_PRINT_TS()      do { } while (0)
 #endif
 
-typedef enum _CTE_OTA_NXP_BOOTMODE_T {
-    NXP_BOOT_NORMAL,
-    NXP_BOOT_OTA
-} CTE_OTA_NXP_BOOTMODE_T;
+#define NXP_MCUBOOT_STARTBYTE 0x5A
 
-
-#ifdef ENABLE_CTE_DBG
-extern void CTE_hex_dump(const void *, size_t);
-#endif
-extern void CTE_OTA_NXP_INIT(void);
-extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
-extern void CTE_OTA_NXP_RESET(void);
-
-
-#define CTE_NXP_COMMAND_CODE 0x5A
-
-extern int atcmd_wifi_ctrl(int argc, char *argv[]);
-extern int atcmd_ctever(int argc, char *argv[]);
-extern int atcmd_nxp_conn(int argc, char *argv[]);
-extern int atcmd_ota_type(int argc, char *argv[]);
-
-
-
-#define CTE_OTA_RETX_MAX        	99999
-#define CTE_FLASH_WRITE_RETX_MAX	5
-#define CTE_OTA_TIMEOUT         	pdMS_TO_TICKS(6000)
 
 #define PTYPE_ENUM      \
     ENUM_ENTRY(MD),     \
@@ -97,24 +78,6 @@ typedef enum _ota_packet_type_t {
 extern const char *ota_packet_type_str[];
 
 
-#define OTA_TYPE_ENUM   \
-    ENUM_ENTRY(NXP),    \
-    ENUM_ENTRY(WIFI)
-
-#define ENUM_ENTRY(x)   OTA_TYPE_ ## x
-
-typedef enum _ota_type_t {
-    OTA_TYPE_ENUM,
-    NUM_OTA_TYPE,
-	OTA_TYPE_NULL = 0xFF
-} ota_type_t;
-
-#undef ENUM_ENTRY
-
-extern void ota_type_set(ota_type_t t);
-extern ota_type_t ota_type_get(void);
-extern void ota_type_invalidate(void);
-
 
 /*
  *      app         wifi            NXP
@@ -125,7 +88,6 @@ extern void ota_type_invalidate(void);
 #define OTA_CTE_NXP_LEN             1024
 #define OTA_CTE_NXP_PKTS            8
 #define OTA_CTE_APP_LEN             (OTA_CTE_NXP_LEN * OTA_CTE_NXP_PKTS)
-#define OTA_CTE_BUFFER_QUEUE_SIZE   4
 
 /* confirmed with app provider */
 #if OTA_CTE_APP_LEN != 8192
@@ -208,12 +170,52 @@ typedef struct {
 
 
 
-extern void cte_generate_crc_table(void);
+#ifdef ENABLE_CTE_DBG
+extern void CTE_hex_dump(const void *, size_t);
+#endif
 
-extern void nxp_answer_ack();
-extern void nxp_ota_msg_data(const void *data, size_t length);
+
+extern void CTE_OTA_GPIO_INIT(void);
+
+typedef enum _CTE_OTA_NXP_BOOTMODE_T {
+    NXP_BOOT_NORMAL,
+    NXP_BOOT_OTA
+} CTE_OTA_NXP_BOOTMODE_T;
+
+extern void CTE_OTA_NXP_BOOTMODE(CTE_OTA_NXP_BOOTMODE_T mode);
+
+extern void CTE_OTA_NXP_RESET(void);
+
+extern bool CTE_OTA_NXP_ALIVE();
+
+
+extern int atcmd_wifi_ctrl(int argc, char *argv[]);
+extern int atcmd_ctever(int argc, char *argv[]);
+extern int atcmd_nxp_conn(int argc, char *argv[]);
+extern int atcmd_ota_type(int argc, char *argv[]);
+
+
+typedef enum _ota_type_t {
+	OTA_TYPE_NXP,
+	OTA_TYPE_WIFI,
+	OTA_TYPE_NULL = 0xFF
+} ota_type_t;
+
+extern void ota_type_set(ota_type_t t);
+extern ota_type_t ota_type_get(void);
+extern void ota_type_invalidate(void);
+
+
+extern void nxp_mcuboot_send_ack();
+extern void nxp_mcuboot_send_data_packet(const void *data, size_t length);
+extern void nxp_mcuboot_parser(uint8_t ch);
+extern bool is_dashboard_fw_recovery_mode();
+extern void dashboard_recovery_mode_state_machine();
+
+extern void monitor_dashboard_alive();
+extern void UserApp_DRM_Monitor(void *);
+
 extern void nxpcmd_parser(const uint8_t *in_buf);
-
 
 
 // CTE OTA Server task function
@@ -242,4 +244,5 @@ extern void CTE_OTA_Nxp_flash_finished();
 // md5_ok: true* if received "AT+MD5OK", *false* if received "AT+MD5NG"
 extern void CTE_OTA_MD5_result(bool md5_ok);
 
-
+// enter dashboard recovery mode
+extern void CTE_Enter_Dashboard_Recovery_Mode();

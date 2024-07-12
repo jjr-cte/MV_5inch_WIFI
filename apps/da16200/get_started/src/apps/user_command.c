@@ -108,6 +108,8 @@ int get_current_freq_ch(void)
            "chan:    %d \n",    band, freq, chan);
     return chan;
 }
+
+
 const COMMAND_TREE_TYPE    cmd_user_list[] = {
   { "user",        CMD_MY_NODE,    cmd_user_list, NULL,             "User cmd "                        },    // Head
 
@@ -119,7 +121,10 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
   { "utxpwr",      CMD_FUNC_NODE,  NULL,          &cmd_txpwr,       "testcmd [option]"                 },
   { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"            },
   { "rfpwr",       CMD_FUNC_NODE,  NULL,          &cmd_rf_power,    "rfpwr [on|off]"                   },
-  { "wfsap",       CMD_FUNC_NODE,  NULL,          &cmd_forged_wfsap, "alias to AT+WFSAP"                },
+  { "wfsap",       CMD_FUNC_NODE,  NULL,          &cmd_forged_wfsap, "alias to AT+WFSAP"               },
+  { "appsw",       CMD_FUNC_NODE,  NULL,          &cmd_switch_app,  "switch dashboard app index"       },
+  { "nxprst",      CMD_FUNC_NODE,  NULL,          &cmd_nxp_reboot,  "nxprst [app|boot]"                },
+  { "drmm",        CMD_FUNC_NODE,  NULL,          &cmd_drmm,        "monitor dashboard alive for a while" },
 
   { NULL, CMD_NULL_NODE,  NULL, NULL, NULL         }    // Tail
 };
@@ -299,4 +304,39 @@ void cmd_forged_wfsap(int argc, char *argv[])
 	PRINTF("invalid S/N: %s\n", argv[1]);
 }
 
-/* EOF */
+void cmd_switch_app(int argc, char *argv[])
+{
+	DA16X_UNUSED_ARG(argc);
+	DA16X_UNUSED_ARG(argv);
+
+	PRINTF("Trigger Dashboard Recovery Mode...\n");
+	CTE_Enter_Dashboard_Recovery_Mode();
+}
+
+void cmd_nxp_reboot(int argc, char *argv[])
+{
+	if (argc == 2)
+	{
+		if (!strcmp(argv[1], "app"))
+		{
+			CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
+			CTE_OTA_NXP_RESET();
+			return;
+		}
+		else if (!strcmp(argv[1], "boot"))
+		{
+			CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
+			CTE_OTA_NXP_RESET();
+			return;
+		}
+	}
+
+	PRINTF("usage: nxprst [app|boot]\n");
+}
+
+void cmd_drmm(int argc, char *argv[])
+{
+	DA16X_UNUSED_ARG(argc);
+	DA16X_UNUSED_ARG(argv);
+	monitor_dashboard_alive();
+}

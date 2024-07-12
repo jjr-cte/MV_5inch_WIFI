@@ -913,8 +913,8 @@ static void monitor_atcmd(void)
             if (atcmd_uart_mon_buf[0] == ESCAPE_CODE) {
                 /* DATA MODE */
                 esc_cmd_parser(atcmd_uart_mon_buf);
-            } else if (atcmd_uart_mon_buf[0] == CTE_NXP_COMMAND_CODE) {
-            	//parse CTE Nxp OTA command
+            } else if (atcmd_uart_mon_buf[0] == NXP_MCUBOOT_STARTBYTE) {
+            	//parse dashboard MCU OTA protocol
             	nxpcmd_parser((const uint8_t *)atcmd_uart_mon_buf);
 #if defined (__SUPPORT_ATCMD_TLS__)
             } else if (strncmp(atcmd_uart_mon_buf, ATCMD_TLS_WR_CMD, strlen(ATCMD_TLS_WR_CMD)) == 0) {
@@ -929,6 +929,9 @@ static void monitor_atcmd(void)
 normal_command:
 #endif // __SUPPORT_ATCMD_TLS__
                 cmd_len = strlen(atcmd_uart_mon_buf);
+
+                CTE_DBG("\033[33m%s\033[m\n", atcmd_uart_mon_buf);
+
                 if ((cmd_len > 0) && (USER_ATCMD_BUF > cmd_len)) {
                     major_err_code = command_parser(atcmd_uart_mon_buf);
 
@@ -1450,14 +1453,21 @@ static int gets_atcmd_uart(char *buf)
         ch = getchar_atcmd_uart(portMAX_DELAY);
 #endif //(__OTA_UPDATE_MCU_FW__)
 
+        //在 dashboard recovery mode 攔截所有UART上收到的東西
+        if (is_dashboard_fw_recovery_mode())
+		{
+			nxp_mcuboot_parser(ch);
+			continue;
+		}
+
         if (ch == 0x00) {
             continue;
         }
 
-        //CTE Nxp OTA command
-        if(ch == CTE_NXP_COMMAND_CODE && buf[0] == '\0')
+        // for dashboard MCU OTA protocol
+        if(ch == NXP_MCUBOOT_STARTBYTE && buf[0] == '\0')
         {
-        	buf[0] = ch;
+        	buf[0] = NXP_MCUBOOT_STARTBYTE;
         	buf[1] = getchar_atcmd_uart(portMAX_DELAY);
 
         	//special process for 5A A1 5A A4

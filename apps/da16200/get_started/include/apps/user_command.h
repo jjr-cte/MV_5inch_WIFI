@@ -53,6 +53,9 @@ extern void cmd_txpwr(int argc, char *argv[]);
 extern void cmd_defaultAPconfig(int argc, char *argv[]);
 extern void cmd_rf_power(int argc, char *argv[]);
 extern void cmd_forged_wfsap(int argc, char *argv[]);
+extern void cmd_switch_app(int argc, char *argv[]);
+extern void cmd_nxp_reboot(int argc, char *argv[]);
+extern void cmd_drmm(int argc, char *argv[]);
 
 #endif /* __USER_COMMAND_H__ */
 

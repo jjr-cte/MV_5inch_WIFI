@@ -429,7 +429,7 @@ static void nfi_write_flash(NxpFlashingInfo *_this)
 	_this->block_len = configMIN(_this->remain, OTA_CTE_NXP_LEN);
 	_this->retx_times++;
 
-	nxp_ota_msg_data(_this->source, _this->block_len);
+	nxp_mcuboot_send_data_packet(_this->source, _this->block_len);
 }
 
 static bool nfi_tried_too_many(NxpFlashingInfo *_this)
@@ -475,6 +475,7 @@ static void nfi_cleanup(NxpFlashingInfo *_this)
 	ENTRIES(NXP_WRITE_FINISH), \
 	ENTRIES(MD5_OK), \
 	ENTRIES(MD5_NG), \
+	ENTRIES(DASHBOARD_RECOVERY), \
 // leave this line blank
 
 #define ENTRIES(x)   EV_ ## x
@@ -757,6 +758,13 @@ void CTE_OTA_MD5_result(bool md5_ok)
 	xQueueSend(event_queue, &e, 0);
 }
 
+void CTE_Enter_Dashboard_Recovery_Mode()
+{
+	EventMsg e;
+	e.type = EV_DASHBOARD_RECOVERY;
+	xQueueSend(event_queue, &e, 0);
+}
+
 
 /// @return  true: valid; false: invalid.
 static bool check_ART(ota_packet_art_t *ART, uint32_t expected_number)
@@ -804,10 +812,15 @@ static void reboot_after_da16200_updated()
 }
 
 
+
 /* CTE_OTA User App 概述
  * 這是一個狀態機，控制著OTA的流程。在TCP連線開啟時重設狀態，然後開始一系列的交互
  * CTE_OTA App 會建立一個Task，負責處理接入TCP連線
  * */
+
+// P03追加：
+// 在這個狀態機上疊床架屋韌體恢復模式的流程控制
+// 這樣當然不怎麼健康，但為了加快開發只好這樣了...
 
 void UserApp_CTE_OTA(void *args)
 {
@@ -817,8 +830,6 @@ void UserApp_CTE_OTA(void *args)
 	configASSERT(event_queue);
 
 	initialize_rb_pool();
-
-	cte_generate_crc_table();
 
 	xTaskCreate(
 		task_OTA_TCP_server,
@@ -872,9 +883,12 @@ void UserApp_CTE_OTA(void *args)
 		}
 #endif
 
-		switch (ev.type)
+		if (ev.type == EV_DASHBOARD_RECOVERY)
 		{
-		case EV_LINK_START:
+			dashboard_recovery_mode_state_machine();
+		}
+		else if (ev.type == EV_LINK_START)
+		{
 			remote_tcp_fd = ev.tcp_fd;
 			reset_packet_retx_times();
 			ota_type_invalidate();
@@ -883,19 +897,16 @@ void UserApp_CTE_OTA(void *args)
 			stateTransfer(eOTAState_SendMD);
 
 			//workaround to RT's AT parser
-			{
 #if defined ( __ATCMD_IF_UART2__ )
 				HANDLE atcmd_uart = uart2;
 #else
 				HANDLE atcmd_uart = uart1;
-#endif // (__ATCMD_IF_UART2__)
-				static const char async_resp[] = "\r\n+WFCST:FA:KE:0M:AC:AD:DR\r\n\r\n+TRCTS:0,10.0.0.2,12345\r\n";
-				UART_WRITE(atcmd_uart, (VOID *)async_resp, 28+27);
-			}
-
-			break;
-
-		case EV_LINK_BREAK:
+#endif
+			static const char async_resp[] = "\r\n+WFCST:FA:KE:0M:AC:AD:DR\r\n\r\n+TRCTS:0,10.0.0.2,12345\r\n";
+			UART_WRITE(atcmd_uart, (VOID *)async_resp, 28+27);
+		}
+		else if (ev.type == EV_LINK_BREAK)
+		{
 			remote_tcp_fd = -1;
 
 			// no termination under Closed state
@@ -905,11 +916,9 @@ void UserApp_CTE_OTA(void *args)
 				CTE_DBG("(global) ");
 				stateTransfer(eOTAState_Terminate);
 			}
-			break;
-
-
-		default:
-
+		}
+		else
+		{
 			switch (current_state())
 			{
 			case eOTAState_Closed:
@@ -920,6 +929,7 @@ void UserApp_CTE_OTA(void *args)
 				ota_packet_md_t p;
 				memset(&p, 0, sizeof(p));
 				p.type = PKT_TYPE_MD;
+				p.ota_type = 0;	//must be 0
 				send_packet(&p, sizeof(p));
 				stateTransfer(eOTAState_WaitAMD);
 			}
@@ -1001,6 +1011,7 @@ void UserApp_CTE_OTA(void *args)
 				ota_packet_st_t p;
 				memset(&p, 0, sizeof(p));
 				p.type = PKT_TYPE_ST;
+				p.ota_type = ota_type_get();
 				send_packet(&p, sizeof(p));
 				stateTransfer(eOTAState_WaitAST);
 			}
@@ -1034,10 +1045,13 @@ void UserApp_CTE_OTA(void *args)
 
 			case eOTAState_SendRV:
 			{
+				//CTE內部的OTA工具使用的特殊測試命令RV，可告知當前版本
+				//這個並非正式通訊協議的一環，並未對客戶開放使用
+
 				ota_packet_rv_t p;
 				PRINTF("REPORT VERSION\n");
 				p.type = PKT_TYPE_RV;
-				p.ota_type = 1;
+				p.ota_type = ota_type_get();
 				memcpy(&p.ver[0], CTEVER_P, 3);
 				memcpy(&p.ver[3], CTEVER_T, 3);
 #ifndef RELEASE_BUILD
@@ -1057,6 +1071,7 @@ void UserApp_CTE_OTA(void *args)
 					ota_packet_rt_t p;
 					memset(&p, 0, sizeof(p));
 					p.type = PKT_TYPE_RT;
+					p.ota_type = ota_type_get();
 					p.packet_number = htonl(current_packet_number);
 
 					send_packet(&p, sizeof(p));
@@ -1192,7 +1207,7 @@ void UserApp_CTE_OTA(void *args)
 			case eOTAState_NxpWaitFinale:
 				if (ev.type == EV_NXP_WRITE_FINISH)
 				{
-					nxp_answer_ack();
+					nxp_mcuboot_send_ack();
 					stateTransfer(eOTAState_SendFH);
 				}
 				break;
@@ -1202,6 +1217,7 @@ void UserApp_CTE_OTA(void *args)
 				ota_packet_fh_t p;
 				memset(&p, 0, sizeof(p));
 				p.type = PKT_TYPE_FH;
+				p.ota_type = ota_type_get();
 				send_packet(&p, sizeof(p));
 
 				switch (ota_type_get())
@@ -1267,7 +1283,12 @@ void UserApp_CTE_OTA(void *args)
 				break;
 
 			case eOTAState_WaitNxpMD5:
-				if (ev.type == EV_TIMEOUT || ev.type == EV_MD5_OK || ev.type == EV_MD5_NG)
+				if (ev.type == EV_MD5_OK || ev.type == EV_TIMEOUT)
+				{
+					monitor_dashboard_alive();
+					stateTransfer(eOTAState_Terminate);
+				}
+				else if (ev.type == EV_MD5_NG)
 				{
 					stateTransfer(eOTAState_Terminate);
 				}

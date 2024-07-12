@@ -363,53 +363,6 @@ void set_customer_softap_config(void)
 #endif // __SUPPORT_FACTORY_RST_APMODE__ || __SUPPORT_FACTORY_RST_CONCURR_MODE__
 }
 
-static void button1_one_touch_cb_fn(void)
-{
-    /* User application function if needed ... */
-#if defined ( __SUPPORT_WIFI_CONCURRENT__ )
-    button1_one_touch_cb = factory_reset_btn_onetouch;
-#else
-    button1_one_touch_cb = NULL;
-#endif // __SUPPORT_WIFI_CONCURRENT__
-}
-
-static void config_gpio_button(void)
-{
-#if defined ( __SUPPORT_EVK_LED__ )
-    /* Set factory-reset button configuration
-     *    : button-gpio / led-gpio / time_seconds */
-    config_factory_reset_button(FACTORY_BUTTON, FACTORY_LED, CHECK_TIME_FACTORY_BTN);
-
-    /* Set wps button configuration
-     *    : button-gpio / led-gpio / time_seconds */
-    config_wps_button(WPS_BUTTON, WPS_LED, CHECK_TIME_WPS_BTN);
-#else
-    /* Set factory-reset button configuration
-     *    : button-gpio / time_seconds */
-    config_factory_reset_button(FACTORY_BUTTON, CHECK_TIME_FACTORY_BTN);
-
-    /* Set wps button configuration
-     *    : button-gpio / time_seconds */
-    config_wps_button(WPS_BUTTON, CHECK_TIME_WPS_BTN);
-#endif // __SUPPORT_EVK_LED__
-
-    /* Regist call-back function for factory-reset button short-press */
-    button1_one_touch_cb_fn();
-
-    /* Set gpio interrupt for WPS and factory-reset button */
-    set_gpio_interrupt();
-
-#if defined ( __TRIGGER_DPM_MCU_WAKEUP__ )
-    /* Retain GPIO for DPM sleep */
-    if (dpm_mode_is_enabled() == TRUE &&  dpm_mode_is_wakeup() == FALSE) {
-        _da16x_io_pinmux(PIN_FMUX, FMUX_GPIO);
-        _GPIO_RETAIN_LOW(GPIO_UNIT_A, GPIO_PIN11);
-    }
-#endif  // __TRIGGER_MCU_WAKEUP__
-
-    CTE_OTA_NXP_INIT();
-}
-
 void trigger_mcu_wakeup_gpio(void)
 {
 #if defined ( __TRIGGER_DPM_MCU_WAKEUP__ )
@@ -496,8 +449,8 @@ void system_start(void)
     /* Config HW wakeup resource */
     config_user_wu_hw_resource();
 
-    /* Set configuration for H/W button */
-    config_gpio_button();
+    // initialize dashboard MCU control pin
+    CTE_OTA_GPIO_INIT();
 
     /* Set paramters for system running */
     set_sys_config();
@@ -521,9 +474,6 @@ void system_start(void)
                          wps_btn_chk_time) == pdTRUE) {
         wps_setup(NULL);
     }
-
-    /* Start GPIO polling thread */
-    start_gpio_thread();
 
     set_dpm_abnorm_user_wakeup_interval();
 
