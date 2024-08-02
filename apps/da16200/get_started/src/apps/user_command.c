@@ -120,11 +120,12 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
 #endif /* __COAP_CLIENT_SAMPLE__ */
   { "utxpwr",      CMD_FUNC_NODE,  NULL,          &cmd_txpwr,       "testcmd [option]"                 },
   { "defap",       CMD_FUNC_NODE,  NULL,          &cmd_defaultAPconfig, "alias to AT+DEFAP"            },
-  { "rfpwr",       CMD_FUNC_NODE,  NULL,          &cmd_rf_power,    "rfpwr [on|off]"                   },
   { "wfsap",       CMD_FUNC_NODE,  NULL,          &cmd_forged_wfsap, "alias to AT+WFSAP"               },
   { "appsw",       CMD_FUNC_NODE,  NULL,          &cmd_switch_app,  "switch dashboard app index"       },
+  { "alive",       CMD_FUNC_NODE,  NULL,          &cmd_read_alive,  "read Alive GPIO"                  },
   { "nxprst",      CMD_FUNC_NODE,  NULL,          &cmd_nxp_reboot,  "nxprst [app|boot]"                },
   { "drmm",        CMD_FUNC_NODE,  NULL,          &cmd_drmm,        "monitor dashboard alive for a while" },
+  { "otarst",      CMD_FUNC_NODE,  NULL,          &cmd_ota_reset,   "reset OTA automata state"         },
 
   { NULL, CMD_NULL_NODE,  NULL, NULL, NULL         }    // Tail
 };
@@ -135,13 +136,9 @@ const COMMAND_TREE_TYPE    cmd_user_list[] = {
 //-----------------------------------------------------------------------
 
 void cmd_test(int argc, char *argv[])
-{    
-    if (argc < 2) {
-        PRINTF("Usage: testcmd [option]\n   ex) testcmd test\n\n");
-        return;
-    }
-
-    PRINTF("\n### TEST CMD : %s ###\n\n", argv[1]);
+{
+	(void) argc;
+	(void) argv;
 }
 
 void cmd_txpwr(int argc, char *argv[])
@@ -233,27 +230,6 @@ void cmd_defaultAPconfig(int argc, char *argv[])
 	}
 }
 
-void cmd_rf_power(int argc, char *argv[])
-{
-	if (argc == 2)
-	{
-		if (!strcasecmp(argv[1], "on"))
-		{
-			PRINTF("RF power on\n");
-			wifi_cs_rf_cntrl(0);
-			return;
-		}
-		else if(!strcasecmp(argv[1], "off"))
-		{
-			PRINTF("RF power off\n");
-			wifi_cs_rf_cntrl(1);
-			return;
-		}
-	}
-
-	PRINTF("usage: [on|off]\n");
-}
-
 extern int atcmd_wifi(int argc, char *argv[]);
 void cmd_forged_wfsap(int argc, char *argv[])
 {
@@ -313,20 +289,28 @@ void cmd_switch_app(int argc, char *argv[])
 	CTE_Enter_Dashboard_Recovery_Mode();
 }
 
+void cmd_read_alive(int argc, char *argv[])
+{
+	DA16X_UNUSED_ARG(argc);
+	DA16X_UNUSED_ARG(argv);
+
+	PRINTF("Alive = %s\n", CTE_NXP_ALIVE()? "HIGH" : "LOW");
+}
+
 void cmd_nxp_reboot(int argc, char *argv[])
 {
 	if (argc == 2)
 	{
 		if (!strcmp(argv[1], "app"))
 		{
-			CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
-			CTE_OTA_NXP_RESET();
+			CTE_NXP_BOOTMODE(NXP_BOOT_NORMAL);
+			CTE_NXP_RESET();
 			return;
 		}
 		else if (!strcmp(argv[1], "boot"))
 		{
-			CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
-			CTE_OTA_NXP_RESET();
+			CTE_NXP_BOOTMODE(NXP_BOOT_SERIAL_DOWNLOADER);
+			CTE_NXP_RESET();
 			return;
 		}
 	}
@@ -339,4 +323,11 @@ void cmd_drmm(int argc, char *argv[])
 	DA16X_UNUSED_ARG(argc);
 	DA16X_UNUSED_ARG(argv);
 	monitor_dashboard_alive();
+}
+
+void cmd_ota_reset(int argc, char *argv[])
+{
+	DA16X_UNUSED_ARG(argc);
+	DA16X_UNUSED_ARG(argv);
+	CTE_OTA_restart();
 }

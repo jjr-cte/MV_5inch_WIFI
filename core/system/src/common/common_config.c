@@ -2933,6 +2933,10 @@ static int cc_set_network(char *cmd, int iface)
 {
     char return_str[16] = {0, };
     int ret = da16x_cli_reply(cmd, CLI_DELIMIT_TAB, return_str);
+#ifndef RELEASE_BUILD
+    PRINTF("> %s\n", cmd);
+    PRINTF(">> %s\n", return_str);
+#endif
 
     if (ret < 0) {
         return CC_FAILURE_UNKNOWN;

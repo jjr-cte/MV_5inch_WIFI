@@ -2,9 +2,11 @@
 
 
 
-#define EVQUEUE_SIZE	10
-#define MAX_PING_TIMES	3
+#define MAX_PING_TIMES	6
+#define PING_INTERVAL	150		//unit: ms
+#define MCUBOOT_BAUD	234000
 
+#define EVQUEUE_SIZE			10
 #define CRC_TABLE_SIZE			256
 #define MCUBOOT_CRC_INIT_VAL	0
 
@@ -74,13 +76,7 @@ static void calculate_mcuboot_CRC(uint16_t *crc, const void *data, size_t length
 
 static void NXP_OTA_UART_WRITE(const void *data, size_t len)
 {
-#if defined ( __ATCMD_IF_UART2__ )
-    HANDLE atcmd_uart = uart2;
-#else
-    HANDLE atcmd_uart = uart1;
-#endif // (__ATCMD_IF_UART2__)
-
-    UART_WRITE(atcmd_uart, (VOID *)data, (UINT32)len);
+    UART_WRITE(uart1, (VOID *)data, (UINT32)len);
 }
 
 
@@ -97,14 +93,14 @@ static void NXP_OTA_UART_WRITE(const void *data, size_t len)
 
 
 
-void nxp_mcuboot_send_ack()
+void nxp_mcuboot_send_ack(void)
 {
 	const uint8_t frame[] = { NXP_MCUBOOT_STARTBYTE, MCUBOOT_PTYPE_ACK };
 	NXP_OTA_UART_WRITE(frame, sizeof(frame));
 }
 
 
-static void nxp_mcuboot_send_nak()
+static void nxp_mcuboot_send_nak(void)
 {
 	const uint8_t frame[] = { NXP_MCUBOOT_STARTBYTE, MCUBOOT_PTYPE_NAK };
 	NXP_OTA_UART_WRITE(frame, sizeof(frame));
@@ -120,7 +116,7 @@ static void nxp_mcuboot_send_frame(uint8_t ptype, const void *payload, size_t le
 		uint16_t crc;
 	} frame;
 
-	_Static_assert(sizeof(frame) == 6, "");
+	_Static_assert(sizeof(frame) == 6);
 
     frame.start_byte = NXP_MCUBOOT_STARTBYTE;
     frame.type = ptype;
@@ -147,7 +143,7 @@ void nxp_mcuboot_send_data_packet(const void *data, size_t length)
 
 
 
-static void send_ping()
+static void send_ping(void)
 {
 	CTE_DBG("%s()\n", __func__);
 
@@ -170,7 +166,7 @@ static void command_fill_memory(uint32_t start_addr, uint32_t byte_count, uint32
 		uint32_t patternWord;
 	} command;
 
-	_Static_assert(sizeof(command) == 16, "");
+	_Static_assert(sizeof(command) == 16);
 
 	command.tag = 0x05;
 	command.flag = 0;
@@ -197,7 +193,7 @@ static void command_configure_memory(uint32_t memory_id, uint32_t address)
 		uint32_t configurationBlockAddress;
 	} command;
 
-	_Static_assert(sizeof(command) == 12, "");
+	_Static_assert(sizeof(command) == 12);
 
 	command.tag = 0x11;
 	command.flag = 0;
@@ -224,7 +220,7 @@ static void command_flash_erase_region(uint32_t address, uint32_t byte_count)
 		uint32_t memoryID;
 	} command;
 
-	_Static_assert(sizeof(command) == 16, "");
+	_Static_assert(sizeof(command) == 16);
 
 	command.tag = 0x02;
 	command.flag = 0;
@@ -250,7 +246,7 @@ static void command_read_memory(uint32_t address, uint32_t byte_count)
 		uint32_t memoryID;
 	} command;
 
-	_Static_assert(sizeof(command) == 16, "");
+	_Static_assert(sizeof(command) == 16);
 
 	command.tag = 0x03;	//ReadMemory
 	command.flag = 0;
@@ -270,7 +266,7 @@ static void command_read_memory(uint32_t address, uint32_t byte_count)
 static size_t g_flashloader_byte_acked = 0;
 static bool g_flashloader_transfer_done = false;
 
-static void flashloader_phase_setup()
+static void flashloader_phase_setup(void)
 {
 	g_flashloader_byte_acked = 0;
 	g_flashloader_transfer_done = false;
@@ -278,7 +274,7 @@ static void flashloader_phase_setup()
 
 #define DATA_PACKET_MAXLEN 512
 
-static void flashloader_phase_send()
+static void flashloader_phase_send(void)
 {
 	size_t send_len = sizeof(ivt_flashloader_rt1176) - g_flashloader_byte_acked;
 
@@ -291,7 +287,7 @@ static void flashloader_phase_send()
 	nxp_mcuboot_send_data_packet(&ivt_flashloader_rt1176[g_flashloader_byte_acked], send_len);
 }
 
-static void flashloader_phase_next()
+static void flashloader_phase_next(void)
 {
 	g_flashloader_byte_acked += DATA_PACKET_MAXLEN;
 	if (g_flashloader_byte_acked > sizeof(ivt_flashloader_rt1176))
@@ -300,7 +296,7 @@ static void flashloader_phase_next()
 	}
 }
 
-static bool flashloader_phase_finished()
+static bool flashloader_phase_finished(void)
 {
 	return g_flashloader_transfer_done;
 }
@@ -347,9 +343,9 @@ const char *text_state[] = {
 //不需要TIMEOUT event請設為portMAX_DELAY
 static const TickType_t state_timeout_period[] = {
 		/* ResetDevice */ portMAX_DELAY,
-		/* Ping1 */ pdMS_TO_TICKS(1000),
+		/* Ping1 */ pdMS_TO_TICKS(PING_INTERVAL),
 		/* LoadFlashloader */ pdMS_TO_TICKS(600),
-		/* Ping2 */ pdMS_TO_TICKS(1000),
+		/* Ping2 */ pdMS_TO_TICKS(PING_INTERVAL),
 		/* Setup1_FillMemory */ pdMS_TO_TICKS(1500),
 		/* Setup1_ConfigMemory */ pdMS_TO_TICKS(1500),
 		/* Setup2_FillMemory1 */ pdMS_TO_TICKS(1500),
@@ -399,7 +395,8 @@ static const char *text_event[] =
 
 
 
-static TickType_t toe_from, toe_period;
+static TickType_t toe_from = 0;
+static TickType_t toe_period = portMAX_DELAY;
 
 static void set_timeout_event(enum DRMState st)
 {
@@ -408,7 +405,7 @@ static void set_timeout_event(enum DRMState st)
 }
 
 //決定等待事件佇列要等多久
-static TickType_t calc_TicksToWait()
+static TickType_t calc_TicksToWait(void)
 {
 	if (toe_period == portMAX_DELAY)
 	{
@@ -448,42 +445,42 @@ typedef struct
 static QueueHandle_t event_queue = NULL;
 
 
-static void event_ack()
+static void event_ack(void)
 {
 	EventMsg e;
 	e.type = EV_ACK;
 	xQueueSend(event_queue, &e, 0);
 }
 
-static void event_nak()
+static void event_nak(void)
 {
 	EventMsg e;
 	e.type = EV_NAK;
 	xQueueSend(event_queue, &e, 0);
 }
 
-static void event_abort()
+static void event_abort(void)
 {
 	EventMsg e;
 	e.type = EV_ACK_ABORT;
 	xQueueSend(event_queue, &e, 0);
 }
 
-static void event_pong()
+static void event_pong(void)
 {
 	EventMsg e;
 	e.type = EV_PONG;
 	xQueueSend(event_queue, &e, 0);
 }
 
-static void event_frame_error()
+static void event_frame_error(void)
 {
 	EventMsg e;
 	e.type = EV_BROKEN;
 	xQueueSend(event_queue, &e, 0);
 }
 
-static void event_data_packet()
+static void event_data_packet(void)
 {
 	EventMsg e;
 	e.type = EV_DATA;
@@ -530,7 +527,7 @@ static void mcuboot_data_setup_rx_buffer(void *addr, size_t len)
 	data_recv.not_ack = 0;
 }
 
-static void mcuboot_data_fallback()
+static void mcuboot_data_fallback(void)
 {
 	data_recv.dst -= data_recv.not_ack;
 	data_recv.remain += data_recv.not_ack;
@@ -547,12 +544,12 @@ static void mcuboot_data_receive(uint8_t d)
 	}
 }
 
-static void mcuboot_data_commit()
+static void mcuboot_data_commit(void)
 {
 	data_recv.not_ack = 0;
 }
 
-static bool mcuboot_data_receiving_ok()
+static bool mcuboot_data_receiving_ok(void)
 {
 	return data_recv.remain == 0 && data_recv.not_ack == 0;
 }
@@ -562,7 +559,7 @@ static bool mcuboot_data_receiving_ok()
 static uint32_t parser_pos = 0;
 static bool g_flag_reset_parser = false;
 
-static void reset_parser()
+static void reset_parser(void)
 {
 	g_flag_reset_parser = true;
 }
@@ -631,22 +628,22 @@ void nxp_mcuboot_parser(uint8_t ch)
 	    switch(ch)
 	    {
 	    case MCUBOOT_PTYPE_ACK:
-	    	CTE_DBG("ACK\n");
+	    	//CTE_DBG("ACK\n");
 	    	event_ack();
 	    	frame_end();
 	    	break;
 	    case MCUBOOT_PTYPE_NAK:
-	    	CTE_DBG("NAK\n");
+	    	//CTE_DBG("NAK\n");
 	    	event_nak();
 	    	frame_end();
 	    	break;
 	    case MCUBOOT_PTYPE_ABORT:
-	    	CTE_DBG("ABORT\n");
+	    	//CTE_DBG("ABORT\n");
 	    	event_abort();
 	    	frame_end();
 	    	break;
 	    case MCUBOOT_PTYPE_PONG:
-	    	CTE_DBG("PONG\n");
+	    	//CTE_DBG("PONG\n");
 	    	event_pong();
 	    	break;
 	    case MCUBOOT_PTYPE_COMMAND:
@@ -763,42 +760,42 @@ void nxp_mcuboot_parser(uint8_t ch)
 static uint8_t app_index;
 
 
-static void restart_recovery_mode()
+static void restart_recovery_mode(void)
 {
 	stateTransfer(eDRMState_ResetDevice);
 }
 
-static void setup1_fill_memory_cmd()
+static void setup1_fill_memory_cmd(void)
 {
 	command_fill_memory(0x20202000, 4, 0xCF900001);
 }
 
-static void configure_memory_cmd()
+static void configure_memory_cmd(void)
 {
 	command_configure_memory(9, 0x20202000);
 }
 
-static void setup2_fill_memory_1_cmd()
+static void setup2_fill_memory_1_cmd(void)
 {
 	command_fill_memory(0x20202000, 4, 0xC0000007);
 }
 
-static void setup2_fill_memory_2_cmd()
+static void setup2_fill_memory_2_cmd(void)
 {
 	command_fill_memory(0x20202004, 4, 0x00000000);
 }
 
-static void read_app_index_cmd()
+static void read_app_index_cmd(void)
 {
 	command_read_memory(0x300FFFE0, 1);
 }
 
-static void erase_app_index_cmd()
+static void erase_app_index_cmd(void)
 {
 	command_flash_erase_region(0x300FFF00, 256);
 }
 
-static void change_app_index_cmd()
+static void change_app_index_cmd(void)
 {
 	uint32_t pattern = app_index;
 	pattern <<= 8;
@@ -869,11 +866,14 @@ void dashboard_recovery_mode_state_machine(void)
 	g_in_dashboard_recovery_mode = true;
 	uint32_t ping_counter = 0;
 
-	CTE_OTA_NXP_BOOTMODE(NXP_BOOT_OTA);
 	stateTransfer(eDRMState_ResetDevice);
+
+	PRINTF("DRM: START DSB RECOVERY @%u\n", (unsigned)xTaskGetTickCount());
 
 	while (1)
 	{
+		// get event
+
 		EventMsg ev;
 
 		if (g_trigger_enter_state_event)
@@ -887,7 +887,7 @@ void dashboard_recovery_mode_state_machine(void)
 			if (toe_period != 0)
 			{
 				CTE_DBG_PRINT_TS();
-				CTE_DBG(" ev(TIME_OUT) %" PRIu32 "\n", (uint32_t)toe_period);
+				CTE_DBG("TIME_OUT: %" PRIu32 " ticks\n", (uint32_t)toe_period);
 			}
 #endif
 			ev.type = EV_TIMEOUT;
@@ -895,27 +895,36 @@ void dashboard_recovery_mode_state_machine(void)
 #ifdef ENABLE_CTE_DBG
 		else
 		{
+			CTE_DBG_PRINT_TS();
 			if(ev.type < DRM_FSM_EVENT_NUM)
 			{
-				CTE_DBG("> %s\n", text_event[ev.type]);
+				CTE_DBG("%s\n", text_event[ev.type]);
 			}
 			else
 			{
-				CTE_DBG_FATAL("Invalid Event Type: %d\n", ev.type);
+				CTE_DBG("Unknown Event: %d\n", ev.type);
 			}
 		}
 #endif
+
+
+		// common event handling
 
 		if (ev.type == EV_ACK_ABORT)
 		{
 			restart_recovery_mode();
 		}
 
-		switch ((int)g_state)	//不轉型的話編譯器會哭沒有處理DRM_FSM_STATE_NUM，很不方便...
+
+		// event handling according to state
+
+		switch (g_state)
 		{
 		case eDRMState_ResetDevice:
-			CTE_OTA_NXP_RESET();
+			CTE_NXP_BOOTMODE(NXP_BOOT_SERIAL_DOWNLOADER);
+			CTE_NXP_RESET();
 			vTaskDelay(pdMS_TO_TICKS(500));
+			UART_CHANGE_BAUERATE(uart1, MCUBOOT_BAUD);
 			reset_parser();
 			stateTransfer(eDRMState_Ping1);
 			break;
@@ -924,6 +933,8 @@ void dashboard_recovery_mode_state_machine(void)
 			if (ev.type == EV_ENTER)
 			{
 				ping_counter = 0;
+				send_ping();
+				set_timeout_event(eDRMState_Ping1);
 			}
 			else if (ev.type == EV_TIMEOUT)
 			{
@@ -978,6 +989,8 @@ void dashboard_recovery_mode_state_machine(void)
 			if (ev.type == EV_ENTER)
 			{
 				ping_counter = 0;
+				send_ping();
+				set_timeout_event(eDRMState_Ping2);
 			}
 			else if (ev.type == EV_TIMEOUT || ev.type == EV_NAK)
 			{
@@ -1107,12 +1120,19 @@ void dashboard_recovery_mode_state_machine(void)
 				goto TiroFinale;
 			}
 			break;
+
+		default:
+			CTE_DBG_FATAL("Unknown Dashboard Recovery Mode state %d\n", g_state);
+			goto TiroFinale;
 		}
 	}
 
 TiroFinale:
-	CTE_DBG("end of Dashboard Recovery Mode\n");
+	PRINTF("DRM: END DSB RECOVERY @%u\n", (unsigned)xTaskGetTickCount());
+
+	CTE_RECOVER_clear_flag();
 	g_in_dashboard_recovery_mode = false;
-	CTE_OTA_NXP_BOOTMODE(NXP_BOOT_NORMAL);
-	CTE_OTA_NXP_RESET();
+	UART_CHANGE_BAUERATE(uart1, DEFAULT_UART_BAUD);
+	CTE_NXP_BOOTMODE(NXP_BOOT_NORMAL);
+	CTE_NXP_RESET();
 }

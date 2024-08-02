@@ -450,7 +450,7 @@ void system_start(void)
     config_user_wu_hw_resource();
 
     // initialize dashboard MCU control pin
-    CTE_OTA_GPIO_INIT();
+    CTE_GPIO_INIT();
 
     /* Set paramters for system running */
     set_sys_config();
@@ -493,9 +493,9 @@ void system_start(void)
     /* Start system applications for DA16XXX */
     start_sys_apps();
 
-    // dust.240129: 啟動後就關掉WIFI RF
-    PRINTF("turn off RF on startup\n");
-    wifi_cs_rf_cntrl(1);
+    // dust.240719: turn off AP after startup
+    PRINTF("turn off AP on startup\n");
+    da16x_cli_reply("ap stop", NULL, NULL);
 
     /*
      * Entry point of user's applications

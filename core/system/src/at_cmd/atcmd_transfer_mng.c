@@ -31,6 +31,7 @@
  */
 
 #include "atcmd_transfer_mng.h"
+#include "user_cte.h"
 
 #undef ENABLE_ATCMD_TR_MNG_DBG_INFO
 #define ENABLE_ATCMD_TR_MNG_DBG_ERR
@@ -398,6 +399,12 @@ void PRINTF_ATCMD(const char *fmt, ...)
 #endif // __ENABLE_TXFIFO_CHK_IN_LOW_BAUDRATE__
 
 	if (atcmd_dpm_wait_ready(1)) {
+		return;
+	}
+
+	if (is_dashboard_fw_recovery_mode())
+	{
+		PRINTF("\033[1;35mStop AT response in DSB Recovery Mode\033[m\n");
 		return;
 	}
 

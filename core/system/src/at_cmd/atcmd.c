@@ -1464,32 +1464,11 @@ static int gets_atcmd_uart(char *buf)
             continue;
         }
 
-        // for dashboard MCU OTA protocol
+        // for MCU firmware update protocol
         if(ch == NXP_MCUBOOT_STARTBYTE && buf[0] == '\0')
         {
         	buf[0] = NXP_MCUBOOT_STARTBYTE;
         	buf[1] = getchar_atcmd_uart(portMAX_DELAY);
-
-        	//special process for 5A A1 5A A4
-        	//雖然這樣寫很不健康但為了實作協議的格式只好這樣了
-        	if ((uint8_t)buf[1] == 0xA1)
-        	{
-        		buf[2] = getchar_atcmd_uart(portNO_DELAY);
-        		if (buf[2] == 0x5A)
-        		{
-        			buf[3] = getchar_atcmd_uart(portMAX_DELAY);
-        		}
-        		else
-        		{
-        			buf[3] = 0;
-        		}
-        	}
-        	else
-        	{
-        		buf[2] = 0;
-        		buf[3] = 0;
-        	}
-
             return AT_CMD_ERR_CMD_OK;
         }
 
@@ -1551,7 +1530,12 @@ static int gets_atcmd_uart(char *buf)
                 }
                 buf[i++] = ch;
             } else {
-                buf[i++] = ch;
+            	// ignore non-printable and non-ASCII character
+            	// it's ok inside quotes
+            	if (quotes == 1 || (isprint(ch) && !(ch & 0x80)))
+            	{
+            		buf[i++] = ch;
+            	}
             }
         }
     }
@@ -4490,10 +4474,23 @@ int atcmd_wifi(int argc, char *argv[])
                 }
             }
 
+        	char dhcp_lease_start[16] = {0, };
+        	char dhcp_lease_end[16] = {0, };
+
+        	da16x_set_nvcache_str(DA16X_CONF_STR_IP_1, DEFAULT_IPADDR_WLAN1);
+        	da16x_set_nvcache_str(DA16X_CONF_STR_NETMASK_1, DEFAULT_SUBNET_WLAN1);
+        	da16x_set_nvcache_str(DA16X_CONF_STR_GATEWAY_1, DEFAULT_GATEWAY_WLAN1);
+
+        	longtoip((iptolong(DEFAULT_IPADDR_WLAN1) + 1), dhcp_lease_start);
+        	da16x_set_nvcache_str(DA16X_CONF_STR_DHCP_START_IP, dhcp_lease_start);
+        	longtoip((iptolong(DEFAULT_IPADDR_WLAN1) + 10), dhcp_lease_end);
+        	da16x_set_nvcache_str(DA16X_CONF_STR_DHCP_END_IP, dhcp_lease_end);
+        	da16x_set_nvcache_str(DA16X_CONF_STR_DHCP_DNS, DEFAULT_DNS_WLAN1);
+        	da16x_set_nvcache_int(DA16X_CONF_INT_DHCP_LEASE_TIME, 1800);
+        	da16x_set_nvcache_int(DA16X_CONF_INT_DHCP_SERVER, CC_VAL_ENABLE);
+
             if ((run_mode == SYSMODE_AP_ONLY) || (run_mode == SYSMODE_STA_N_AP)) {
-                da16x_cli_reply("ap stop", NULL, NULL);
-                vTaskDelay(1);
-                da16x_cli_reply("ap start", NULL, NULL);
+            	CTE_WFSAP_change_AP_config();
             } else {
                 da16x_set_nvcache_int(DA16X_CONF_INT_MODE, SYSMODE_AP_ONLY);
             }
@@ -15803,7 +15800,9 @@ void atcmd_asynchony_event(int index, char *buf)
     case 10: {    // +INIT:DONE,1
         if (   get_run_mode() == SYSMODE_AP_ONLY
             && (get_INIT_DONE_sent_flag() == pdFALSE && init_done_sent == pdTRUE)) {
-            PRINTF_ATCMD("\r\n+INIT:DONE,%d\r\n", get_run_mode());
+#if 0	//dust.240723: 移除一開始的訊息避免搶 RT1176 BootROM 的控制權.
+            PRINTF_ATCMD("\r\n\r\n+INIT:DONE,%d\r\n", get_run_mode());
+#endif
             set_INIT_DONE_msg_to_MCU_on_SoftAP_mode(pdTRUE);
         }
     } break;

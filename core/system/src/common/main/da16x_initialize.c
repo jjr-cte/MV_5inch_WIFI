@@ -1048,7 +1048,6 @@ void system_launcher( void *pvParameters)
     }
 #endif
 
-    PRINTF(CLEAR_COLOR);	// avoid incomplete ANSI color sequence from previous lifetime
     {
         // LDO status check: XTAL40M_RDY, DIG_LDO_RDY, F_LDO_RDY & DCDC_RDY
         unsigned long ldo_status = 0;

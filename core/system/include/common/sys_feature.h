@@ -38,7 +38,7 @@
 
 #define ENVIRON_DEVICE                 NVEDIT_SFLASH
 
-#define COUNTRY_CODE_DEFAULT           "KR"
+#define COUNTRY_CODE_DEFAULT           "US"
 #define CHANNEL_AUTO                   0
 #define CHANNEL_DEFAULT                CHANNEL_AUTO
 #define REPLY_FAIL                    "FAIL"
