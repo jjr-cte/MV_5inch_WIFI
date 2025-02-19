@@ -1412,7 +1412,7 @@ static void Task_OtaUpdateAutomata(void *args)
 				acknowledge_finish();
 				vTaskDelay(pdMS_TO_TICKS(10));
 				write_MD5();
-				set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_TIMEOUT));
+				set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MD5_CALC_WAIT_TIME));
 			}
 			else if (ev.type == EV_MD5_OK)
 			{
