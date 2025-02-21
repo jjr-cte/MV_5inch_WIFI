@@ -6,13 +6,13 @@
 
 
 #define CTEVER_P    "P05"	//must be 3 characters
-#define CTEVER_T    "T00"	//must be 3 characters
+#define CTEVER_T    "T01"	//must be 3 characters
 
 
 #define CTE_OTA_SERVER_PORT 			2300		//OTA Server 使用的port
 #define CTE_OTA_KEEPALIVE_INTERVAL 		4000		//KeepAlive發送間隔(unit: ms)
 #define CTE_OTA_MCU_STUCK_TIMEOUT		20000		//MCU卡死的超時長度(unit: ms)
-#define CTE_OTA_MD5_CALC_WAIT_TIME		30000		//等待MCU計算映像檔MD5的時間(unit: ms)
+#define CTE_OTA_MD5_CALC_WAIT_TIME		40000		//等待MCU計算映像檔MD5的時間(unit: ms)
 #define CTE_OTA_MCU_STUCK_REBOOT_DELAY	6000		//判定MCU卡死後，延遲多久發RST訊號(unit: ms)
 #define CTE_OTA_MAIN_FW_SIZE_LIMIT		99999999	//主程式尺寸限制(unit: bytes)
 #define CTE_OTA_WIFI_FW_SIZE_LIMIT		1703936		//WIFI韌體尺寸限制(1664KB)
