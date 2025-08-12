@@ -22,7 +22,8 @@ if "%4"=="DA16xxx_ueboot" (
 	set /p vcs_revision=<%version_dir%\genfiles\rtos_svn_rev.txt
 )
 
-for /f %%a in ('WMIC OS GET LocalDateTime ^| find "."') do set locdate=%%a
+for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value 2^>nul ^| find "="') do set locdate=%%a
+if not defined locdate for /f %%a in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMddHHmmss"') do set locdate=%%a
 
 if %time:~0,2%  LEQ 9 (
 	set datetime=%locdate:~0,4%%locdate:~4,2%%locdate:~6,2%0%time:~1,1%%time:~3,2%

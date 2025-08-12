@@ -854,7 +854,7 @@ static void send_KeepAlive(void)
 		OTA_packet_header_t header;
 	} packet;
 
-	_Static_assert( sizeof(packet) == 4 );
+	_Static_assert( sizeof(packet) == 4, "Size Error");
 
 	FILL_HEADER(packet.header, PTYPE_KeepAlive, 0);
 
@@ -871,7 +871,7 @@ static void send_GetMeta(void)
 	} packet;
 #pragma pack(pop)
 
-	_Static_assert( sizeof(packet) == 7 );
+	_Static_assert( sizeof(packet) == 7, "Size Error");
 
 	FILL_HEADER(packet.header, PTYPE_GetMeta, sizeof(packet.body));
 
@@ -890,7 +890,7 @@ static void send_RequestData(uint32_t data_package_number)
 	} packet;
 #pragma pack(pop)
 
-	_Static_assert( sizeof(packet) == 8 );
+	_Static_assert( sizeof(packet) == 8, "Size Error");
 
 	FILL_HEADER(packet.header, PTYPE_RequestData, sizeof(packet.body));
 
@@ -909,7 +909,7 @@ static void send_FIN(void)
 	} packet;
 #pragma pack(pop)
 
-	_Static_assert( sizeof(packet) == 5 );
+	_Static_assert( sizeof(packet) == 5, "Size Error");
 
 	FILL_HEADER(packet.header, PTYPE_FIN, sizeof(packet.body));
 

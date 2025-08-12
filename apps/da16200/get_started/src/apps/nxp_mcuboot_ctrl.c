@@ -116,7 +116,7 @@ static void nxp_mcuboot_send_frame(uint8_t ptype, const void *payload, size_t le
 		uint16_t crc;
 	} frame;
 
-	_Static_assert(sizeof(frame) == 6);
+	_Static_assert(sizeof(frame) == 6, "Size Error");
 
     frame.start_byte = NXP_MCUBOOT_STARTBYTE;
     frame.type = ptype;
@@ -166,7 +166,7 @@ static void command_fill_memory(uint32_t start_addr, uint32_t byte_count, uint32
 		uint32_t patternWord;
 	} command;
 
-	_Static_assert(sizeof(command) == 16);
+	_Static_assert(sizeof(command) == 16, "Size Error");
 
 	command.tag = 0x05;
 	command.flag = 0;
@@ -193,7 +193,7 @@ static void command_configure_memory(uint32_t memory_id, uint32_t address)
 		uint32_t configurationBlockAddress;
 	} command;
 
-	_Static_assert(sizeof(command) == 12);
+	_Static_assert(sizeof(command) == 12, "Size Error");
 
 	command.tag = 0x11;
 	command.flag = 0;
@@ -220,7 +220,7 @@ static void command_flash_erase_region(uint32_t address, uint32_t byte_count)
 		uint32_t memoryID;
 	} command;
 
-	_Static_assert(sizeof(command) == 16);
+	_Static_assert(sizeof(command) == 16, "Size Error");
 
 	command.tag = 0x02;
 	command.flag = 0;
@@ -246,7 +246,7 @@ static void command_read_memory(uint32_t address, uint32_t byte_count)
 		uint32_t memoryID;
 	} command;
 
-	_Static_assert(sizeof(command) == 16);
+	_Static_assert(sizeof(command) == 16, "Size Error");
 
 	command.tag = 0x03;	//ReadMemory
 	command.flag = 0;
@@ -356,7 +356,7 @@ static const TickType_t state_timeout_period[] = {
 		/* ChangeAppIndex */ pdMS_TO_TICKS(2000),
 };
 
-_Static_assert(DRM_FSM_STATE_NUM == sizeof(state_timeout_period) / sizeof(TickType_t));
+_Static_assert(DRM_FSM_STATE_NUM == sizeof(state_timeout_period) / sizeof(TickType_t), "Size Error");
 
 
 #define DRM_FSM_EVENT_ENUMERATION \
@@ -600,7 +600,7 @@ void nxp_mcuboot_parser(uint8_t ch)
 	} buf;
 #pragma pack(pop)
 
-	_Static_assert(sizeof(buf) == 18);
+	_Static_assert(sizeof(buf) == 18, "Size Error");
 
 	static uint16_t calc_crc;
 

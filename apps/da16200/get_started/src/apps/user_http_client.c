@@ -838,9 +838,9 @@ static void http_client_process_request(void *arg)
 {
     err_t error = ERR_OK;
 
-    const int max_timeout = HTTPC_MAX_STOP_TIMEOUT;
-    const int timeout = HTTPC_DEF_TIMEOUT;
-    int cur_timeout = 0;
+    TickType_t max_timeout = HTTPC_MAX_STOP_TIMEOUT;
+    TickType_t timeout = HTTPC_DEF_TIMEOUT;
+    TickType_t cur_timeout = 0;
 
     DA16_HTTP_CLIENT_CONF *conf = (DA16_HTTP_CLIENT_CONF *)arg;
     DA16_HTTP_CLIENT_REQUEST *request = &(conf->request);

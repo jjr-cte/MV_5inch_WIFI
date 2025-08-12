@@ -189,12 +189,24 @@ atcmd_tls_context *atcmd_tls_ctx_rtm_header = NULL;
 
 #endif // __SUPPORT_ATCMD_TLS__
 
+#if 0
 const char esc_cmd_s_upper_case = 'S';
 const char esc_cmd_s_lower_case = 's';
 const char esc_cmd_m_upper_case = 'M';
 const char esc_cmd_m_lower_case = 'm';
 const char esc_cmd_h_upper_case = 'H';
 const char esc_cmd_h_lower_case = 'h';
+#else
+typedef enum
+{
+	esc_cmd_s_upper_case = 'S',
+	esc_cmd_s_lower_case = 's',
+	esc_cmd_m_upper_case = 'M',
+	esc_cmd_m_lower_case = 'm',
+	esc_cmd_h_upper_case = 'H',
+	esc_cmd_h_lower_case = 'h'
+}esc_cmd;
+#endif
 
 /**************************************************************************
  * Global Functions
