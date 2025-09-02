@@ -282,7 +282,76 @@ int atcmd_ota_type(int argc, char *argv[])
 
 ////////////////////////////////////////////////////////////////////////////////
 
-
+/*
+ * NXP OTA flow :
+ *
+ * host     NXP     message             meaning
+ *      -->         5A A6               ping
+ *      <--         5A A7               ping response
+ *
+ *      -->         5A A4               command pGetProperty01_1
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A5               data payload : pFLASHLOADER
+ *      <--         5A A1               ack
+ *      -->         5A A5               data payload : pFLASHLOADER (continue)
+ *      <--         5A A1               ack
+ *                   ...
+ *
+ *      -->         5A A6               ping
+ *      <--         5A A7               ping response
+ *
+ *      -->         5A A4               command pGetProperty01_2
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFillMemory1
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFillMemory2
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFillMemory3
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pConfigureMemory_2
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pFlashEraseRegionCode1000
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pConfigureMemoryCode
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pGetPropertyCode
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A4               command pWriteMemoryCode
+ *      <--         5A A1 5A A4         command ack
+ *      -->         5A A1               ack
+ *
+ *      -->         5A A5               data payload : pFWCONFIG
+ *      <--         5A A1               ack
+ *      -->         5A A5               data payload : pFWCONFIG (continue)
+ *      <--         5A A1               ack
+ *                   ...
+ *
+ *      -->         5A A5               data payload : pFWPACKAGE
+ *      <--         5A A1               ack
+ *      -->         5A A5               data payload : pFWPACKAGE (continue)
+ *      <--         5A A1               ack
+ *                   ...
+ *      <--         5A A1 5A A4         command ack : write memory finished
+ *      -->         5A A1               ack
+ */
 /*
  * under AT-CMD task, priority OS_TASK_PRIORITY_USER + 6
  * call path : atcmd_task() -> monitor_atcmd() -> nxpcmd_parser()

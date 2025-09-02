@@ -15686,7 +15686,7 @@ void atcmd_asynchony_event(int index, char *buf)
 #endif // (__SUPPORT_WIFI_PROVISIONING__)
 
     switch (index) {
-    case 0: {    //ATC_EV_STACONN:
+    case eATC_EV_STACONN: {    //ATC_EV_STACONN:
         char ssid_str[32 * 4 + 1] = {0, }, ip_str[16] = { 0, };
 
         if (atoi(buf) == 1) {
@@ -15719,14 +15719,14 @@ void atcmd_asynchony_event(int index, char *buf)
         }
     } break;
 
-    case 1:    //ATC_EV_STADISCONN:
+    case eATC_EV_STADISCONN:    //ATC_EV_STADISCONN:
         atcmd_wf_jap_dap_print_with_cause(0);
 #if defined (__SUPPORT_MQTT__)
         atcmd_wfdap_condition_resolved = FALSE;
 #endif // __SUPPORT_MQTT__
         break;
 
-    case 2:    //ATC_EV_APCONN:
+    case eATC_EV_APCONN:    //ATC_EV_APCONN:
 #if 0
     	PRINTF_ATCMD("\r\n+WFCST:%s\r\n", buf);
 
@@ -15739,7 +15739,7 @@ void atcmd_asynchony_event(int index, char *buf)
 #endif
         break;
 
-    case 3:    //ATC_EV_APDISCONN:
+    case eATC_EV_APDISCONN:    //ATC_EV_APDISCONN:
 #if 0
     	PRINTF_ATCMD("\r\n+WFDST:%s\r\n", buf);
 
@@ -15753,7 +15753,7 @@ void atcmd_asynchony_event(int index, char *buf)
         break;
 
 #if defined ( __SUPPORT_MQTT__ )
-    case 4: {    //ATC_EV_MQTTSUBCONN:
+    case eATC_EV_MQTTSUBCONN: {    //ATC_EV_MQTTSUBCONN:
         int mqtt_connected = atoi(buf);
 
         if (mqtt_connected) {
@@ -15791,25 +15791,25 @@ void atcmd_asynchony_event(int index, char *buf)
 #endif // __SUPPORT_MQTT__
 
 #if defined (__SUPPORT_OTA__)
-    case 6: {    //ATC_EV_OTADWSTART:
+    case eATC_EV_OTADWSTART: {    //ATC_EV_OTADWSTART:
         PRINTF_ATCMD("\r\n+NWOTADWSTART:%s\r\n", buf);
     } break;
 
-    case 7: {   //ATC_EV_OTARENEW:
+    case eATC_EV_OTARENEW: {   //ATC_EV_OTARENEW:
         PRINTF_ATCMD("\r\n+NWOTARENEW:%s\r\n", buf);
     } break;
 #endif // (__SUPPORT_OTA__)
 
 #if defined (__SUPPORT_HTTP_CLIENT_FOR_ATCMD__)
-    case 8: {   //ATC_EV_HTC:
+    case eATC_EV_HTC: {   //ATC_EV_HTC:
         PRINTF_ATCMD("\r\n+NWHTC:%s", buf);
     } break;
 
-    case 9: {    //ATC_EV_HTCSTATUS:
+    case eATC_EV_HTCSTATUS: {    //ATC_EV_HTCSTATUS:
         PRINTF_ATCMD("\r\n+NWHTCSTATUS:%s\r\n", buf);
     } break;
 #endif // (__SUPPORT_HTTP_CLIENT_FOR_ATCMD__)
-    case 10: {    // +INIT:DONE,1
+    case eATC_EV_INIT_DONE: {    // +INIT:DONE,1
         if (   get_run_mode() == SYSMODE_AP_ONLY
             && (get_INIT_DONE_sent_flag() == pdFALSE && init_done_sent == pdTRUE)) {
 #if 0	//dust.240723: 移除一開始的訊息避免搶 RT1176 BootROM 的控制權.

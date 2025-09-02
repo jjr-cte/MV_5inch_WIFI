@@ -197,6 +197,26 @@ typedef enum _atcmd_sess_nvr_type {
     ATCMD_SESS_NVR_MAX_ALLOWED_PEER  = 4,
 } atcmd_sess_nvr_type;
 
+
+typedef enum
+{
+	eATC_EV_STACONN		=  0,
+	eATC_EV_STADISCONN	=  1,
+	eATC_EV_APCONN 		=  2,
+	eATC_EV_APDISCONN	=  3,
+	eATC_EV_MQTTSUBCONN =  4,
+
+	eATC_EV_NOUSE 		=  5,
+
+	eATC_EV_OTADWSTART	=  6,
+	eATC_EV_OTARENEW    =  7,
+	eATC_EV_HTC			=  8,
+	eATC_EV_HTCSTATUS 	=  9,
+	eATC_EV_INIT_DONE	= 10,
+
+	eATC_EV_INVALID		= 11
+}eATC_EV;
+
 #define ATCMD_RTM_NW_TR_NAME                  "ATC_NW_TR_NAME"
 
 // Name of NVRAM to support multi session
