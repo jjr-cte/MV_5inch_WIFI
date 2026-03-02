@@ -45,19 +45,24 @@ static void acknowledge_finish(void)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-
+//John_9999 command start
 #define PTYPE_GetMeta			0x20
 #define PTYPE_AnswerMeta		0x21
 #define PTYPE_RequestData		0x22
 #define PTYPE_DataPackage		0x23
 #define PTYPE_FIN				0x24
+#define PTYPE_DISCON            0x25  //JJR
 #define PTYPE_KeepAlive			0x30
 
 #define OTA_TYPE_MAIN		0
 #define OTA_TYPE_WIFI		1
+#define OTA_TYPE_BT         2
+#define OTA_TYPE_BLE        3
+#define OTA_TYPE_EXIT       4
+//John_9999 command end
 
 
-
+static bool OneButton = false; //JJR
 typedef uint8_t PacketType_t;
 typedef uint8_t OtaType_t;
 typedef uint16_t BodyLen_t;
@@ -242,6 +247,8 @@ static const char *strOtaEvent(uint8_t e)
 	ENTRIES(MCU_Programing), \
 	ENTRIES(MCU_Verification), \
 	ENTRIES(WIFI_Programing), \
+	ENTRIES(BT_Programing), \
+	ENTRIES(BLE_Programing), \
 	ENTRIES(DONE), \
 	ENTRIES(Terminated), \
 // leave this line blank
@@ -293,7 +300,7 @@ static struct OTAUpdateMetaData metadata;
 static void initialize_ota_update_metadata(void)
 {
 	metadata.ready = false;
-	metadata.ota_type = 0;
+	metadata.ota_type = OTA_TYPE_MAIN;
 }
 
 
@@ -765,7 +772,6 @@ static void init_automata(void)
 	g_ota_result = OTA_RESULT_DEBUG_1;
 	g_waiting_response = false;
 	g_pending_keep_alive = false;
-
 	if (sock_remote_app >= 0)
 	{
 		closesocket(sock_remote_app);
@@ -777,6 +783,30 @@ static void init_automata(void)
 	unset_timeout_event();
 
 	initialize_ota_update_metadata();
+}
+
+static void init_automata_OneButton(void) //JJR
+{
+	PRINTF("RESET OTA PROCESS\n");
+
+	g_ota_server_state = eOTAState_GetMetadata;
+	g_trigger_enter_state_event = false;
+	g_ota_result = OTA_RESULT_DEBUG_1;
+	g_waiting_response = false;
+	g_pending_keep_alive = false;
+/*
+	if (sock_remote_app >= 0)
+	{
+		closesocket(sock_remote_app);
+		sock_remote_app = -1;
+	}
+
+	xTimerStop(keep_alive_timer, pdMS_TO_TICKS(10));
+*/
+	unset_timeout_event();
+
+	initialize_ota_update_metadata();
+
 }
 
 
@@ -900,7 +930,7 @@ static void send_RequestData(uint32_t data_package_number)
 }
 
 
-static void send_FIN(void)
+static void send_FIN(void) 
 {
 #pragma pack(push, 1)
 	struct {
@@ -918,6 +948,20 @@ static void send_FIN(void)
 	send_control_packet(sock_remote_app, &packet, sizeof(packet), false);
 }
 
+static void send_DISCON(void) /*JJR create*/
+{
+#pragma pack(push, 1)
+	struct {
+		OTA_packet_header_t header;
+	} packet;
+#pragma pack(pop)
+
+	_Static_assert( sizeof(packet) == 4, "Size Error");
+
+	FILL_HEADER(packet.header, PTYPE_DISCON, 0);
+
+	send_control_packet(sock_remote_app, &packet, sizeof(packet), false);
+}
 
 static void output_AT_style_async_msg(char *s)
 {
@@ -935,7 +979,25 @@ static void write_fw_size(void)
 #endif
 
 	char buf[64];
-	snprintf(buf, sizeof(buf), "+META:%08" PRIu32, metadata.total_size);
+	/*
+		snprintf(buf, sizeof(buf), "+META:%08" PRIu32, metadata.total_size);//JJR
+	*/
+    if(metadata.ota_type == OTA_TYPE_MAIN) //JJR
+	{
+		snprintf(buf, sizeof(buf), "+METAa%08" PRIu32, metadata.total_size);
+	}
+	else if(metadata.ota_type == OTA_TYPE_WIFI)
+	{
+		snprintf(buf, sizeof(buf), "+METAb%08" PRIu32, metadata.total_size);
+	}
+	else if(metadata.ota_type == OTA_TYPE_BT)
+	{
+		snprintf(buf, sizeof(buf), "+METAc%08" PRIu32, metadata.total_size);
+	}
+	else if(metadata.ota_type == OTA_TYPE_BLE)
+	{
+		snprintf(buf, sizeof(buf), "+METAd%08" PRIu32, metadata.total_size);
+	}
 	output_AT_style_async_msg(buf);
 }
 
@@ -953,7 +1015,7 @@ static void write_MD5(void)
 }
 
 
-static void handle_nxp_write_abort(uint8_t nxp_write_err_code)
+static void handle_nxp_write_abort(uint8_t nxp_write_err_code) //John_9999 what is this?
 {
 	switch (nxp_write_err_code)
 	{
@@ -1027,583 +1089,455 @@ static void Task_OtaUpdateAutomata(void *args)
 	sock_remote_app = -1;
 	init_automata();
 
-	if (CTE_RECOVER_need_check_dashboard_alive())
-	{
+	PRINTF("John_9999...OTA TASK initial\n");
+	if (CTE_RECOVER_need_check_dashboard_alive()) {
 		PRINTF("check MCU alive...\n");
-
 		bool dashboard_alive = false;
-		for (int i = 0; i < CTE_RECOVER_TOTAL_POLLING_ON_STARTUP; i++)
-		{
+		for (int i = 0; i < CTE_RECOVER_TOTAL_POLLING_ON_STARTUP; i++) {
 			vTaskDelay(pdMS_TO_TICKS(CTE_RECOVER_POLLING_INTERVAL));
 
-			if (CTE_NXP_ALIVE())
-			{
+			if (CTE_NXP_ALIVE()) {
 				dashboard_alive = true;
 				CTE_DBG_PRINT_TS();
 				CTE_DBG("OTAutomata: detect alive\n");
 				break;
-			}
-			else
-			{
+			} else {
 				CTE_DBG_PRINT_TS();
 				CTE_DBG("OTAutomata: detecting...\n");
 			}
 		}
 
-		if (dashboard_alive)
-		{
+		if (dashboard_alive) {
 			PRINTF("remove RECOVER flag\n");
 			CTE_RECOVER_clear_flag();
-		}
-		else
-		{
+		} else {
 			PRINTF("activate Dashboard Recovery Mode from NVM\n");
 			CTE_Enter_Dashboard_Recovery_Mode();
 		}
 	}
 
-	while (1)
-	{
+	PRINTF("John_9999...Get in OTA loop\n");
+	while (1) { //John_9999 enter OTA loop
 		// get event
-
 		Event_t ev;
-
-		if (g_trigger_enter_state_event)
-		{
+		if (g_trigger_enter_state_event) {
 			g_trigger_enter_state_event = false;
 			ev.type = EV_ENTER;
-		}
-		else if (g_pending_keep_alive && !g_waiting_response)
-		{
+		}else if (g_pending_keep_alive && !g_waiting_response) {
 			g_pending_keep_alive = false;
 			ev.type = EV_KEEPALIVE;
-		}
-		else if (xQueueReceive(event_queue, &ev, calc_TicksToWait()) != pdTRUE )
-		{
+		}else if (xQueueReceive(event_queue, &ev, calc_TicksToWait()) != pdTRUE ) {
 			ev.type = EV_TIMEOUT;
 			unset_timeout_event();	//停止timeout事件，讓它成為single-shot timer
 		}
-
 
 		{
 			CTE_DBG_PRINT_TS();
 			CTE_DBG("%s\n", strOtaEvent(ev.type));
 		}
 
-
 		// common event handling
-
-		if (ev.type == EV_DASHBOARD_RECOVERY)
-		{
+		if (ev.type == EV_DASHBOARD_RECOVERY) {
 			dashboard_recovery_mode_state_machine();
 			init_automata();
 			continue;
-		}
-		else if (ev.type == EV_RESET_AUTOMATA)
-		{
+		} else if (ev.type == EV_RESET_AUTOMATA) {
 			init_automata();
 			continue;
-		}
-		else if (ev.type == EV_LINK_START)
-		{
-#ifdef ENABLE_CTE_DBG
-			profiling_total_tcp_connect_times++;
-#endif
-			if (sock_remote_app >= 0)
-			{
+		} else if (ev.type == EV_LINK_START) {
+            #ifdef ENABLE_CTE_DBG
+				profiling_total_tcp_connect_times++;
+            #endif
+			if (sock_remote_app >= 0) {
 				CTE_DBG("close old connection\n");
-
 				closesocket(sock_remote_app);
 				sock_remote_app = -1;
 			}
-
 			sock_remote_app = ev.sock_client;
 			g_waiting_response = false;
-
-			if (xQueueSend(queue_socket, &sock_remote_app, 0) != pdTRUE)
-			{
+			if (xQueueSend(queue_socket, &sock_remote_app, 0) != pdTRUE) {
 				CTE_DBG_FATAL("queue_socket full!!\n");
-
 				closesocket(sock_remote_app);
 				sock_remote_app = -1;
-
 				continue;
 			}
-
 			reset_keep_alive_timer();
-		}
-		else if (ev.type == EV_LINK_BREAK)
-		{
+		} else if (ev.type == EV_LINK_BREAK) {
 			// check EV_LINK_BREAK is the current socket
-			if (ev.sock_client == sock_remote_app)
-			{
+			if (ev.sock_client == sock_remote_app) {
 				xTimerStop(keep_alive_timer, pdMS_TO_TICKS(10));
 				CTE_DBG("close socket\n");
 				closesocket(sock_remote_app);
 				sock_remote_app = -1;
-			}
-			else
-			{
+			} else {
 				CTE_DBG("LINK_BREAK on old socket %d, current = %d\n", ev.sock_client, sock_remote_app);
 			}
-		}
-		else if (ev.type == EV_KEEPALIVE)
-		{
-			if (g_waiting_response)
-			{
+		} else if (ev.type == EV_KEEPALIVE) {
+			if (g_waiting_response) {
 				g_pending_keep_alive = true;
 				CTE_DBG("pending KeepAlive\n");
-			}
-			else
-			{
+			} else {
 				send_KeepAlive();
 			}
-		}
-		else if (ev.type == EV_BAD_OTA_TYPE)
-		{
-			if (g_ota_server_state != eOTAState_Terminated)
-			{
+		} else if (ev.type == EV_BAD_OTA_TYPE) {
+			if (g_ota_server_state != eOTAState_Terminated) {
 				Terminate(OTA_RESULT_INCONSIST_OTA_TYPE);
 			}
 		}
-
-
 		// event handling according to state
-
-		switch (g_ota_server_state)
-		{
-
-		case eOTAState_INIT:
-
-			if (ev.type == EV_LINK_START)
-			{
-				release_DataPackageBuffer(&dpack_buffer);
-				nfi_cleanup(&nxp_flash_writer);
-#ifdef ENABLE_CTE_DBG
-				profiling_total_tcp_connect_times = 1;
-				profiling_OTA_start_time = xTaskGetTickCount();
-#endif
-				stateTransfer(eOTAState_GetMetadata);
-			}
-			break;
-
-
-		case eOTAState_GetMetadata:
-
-			if (ev.type == EV_ENTER)
-			{
-				send_GetMeta();
-			}
-			if (ev.type == EV_LINK_START)
-			{
-				send_GetMeta();
-			}
-			else if (ev.type == EV_RECV_METADATA)
-			{
-				if (metadata_is_ready())
-				{
-					response_received();
-
-					PRINTF("total size = %" PRIu32 "\n", metadata.total_size);
-					PRINTF("total packages = %" PRIu32 "\n", metadata.total_packages);
-					CTE_DBG("MD5:\n");
-					memory_dump(metadata.md5, 16);
-
-					if (metadata.total_packages < 2)
-					{
-						PRINTF("[BAD META] total packages too few\n");
-						Terminate(OTA_RESULT_BAD_METADATA);
-					}
-					else if (!check_packages_amount())
-					{
-						PRINTF("[BAD META] total size not match packages\n");
-						Terminate(OTA_RESULT_BAD_METADATA);
-					}
-					else
-					{
-						switch (metadata.ota_type)
-						{
-						case OTA_TYPE_MAIN:
-							PRINTF("OTA Update: MAIN\n");
-							if (metadata.total_size > CTE_OTA_MAIN_FW_SIZE_LIMIT)
-							{
-								PRINTF("[BAD META] too big\n");
-								Terminate(OTA_RESULT_BAD_METADATA);
-							}
-							else
-							{
-								stateTransfer(eOTAState_WaitErase);
-							}
-							break;
-
-						case OTA_TYPE_WIFI:
-				            PRINTF("OTA Update: WIFI\n");
-				            if (metadata.total_size > CTE_OTA_WIFI_FW_SIZE_LIMIT)
-							{
-								PRINTF("[BAD META] too big\n");
-								Terminate(OTA_RESULT_BAD_METADATA);
-							}
-							else
-							{
-					            DA16200MOD_fw_write_address = get_new_firmware_address();
-					            mbedtls_md5_starts_ret(&MD5_calc);
-					            req_package_number = 0;
-
-								stateTransfer(eOTAState_WIFI_Programing);
-							}
-							break;
-
-						default:
-							PRINTF("Unknown OTA Type = %02X\n", metadata.ota_type);
-							Terminate(OTA_RESULT_UNKNOWN_OTA_TYPE);
-						}
-					}
-				}
-				else
-				{
-					CTE_DBG_XXX();
-					CTE_DBG("ghost EV_RECV_METADATA !!\n");
-				}
-			}
-
-			break;
-
-
-		case eOTAState_WaitErase:
-
-			if (ev.type == EV_ENTER)
-			{
-				write_fw_size();
-
-				uint32_t timeout = metadata.total_size / 153 + 10000;
-
-				// avoid overflow
-				if (timeout >= portMAX_DELAY / 1000 - 20000)
-				{
-					timeout = portMAX_DELAY / 1000 - 20000;
-				}
-
-				CTE_DBG("erase waiting timeout: %" PRIu32 " ms\n", timeout);
-
-				set_timeout_event(pdMS_TO_TICKS(timeout));
-			}
-			else if (ev.type == EV_ERASE_OK)
-			{
-				req_package_number = 0;
-				ack_packages = 0;
-
-				stateTransfer(eOTAState_MCU_Programing);
-			}
-			else if (ev.type == EV_ERASE_FAIL)
-			{
-				Terminate(OTA_RESULT_ERASE_FAIL);
-			}
-			else if (ev.type == EV_TIMEOUT)
-			{
-				Terminate(OTA_RESULT_MCU_NO_ANS);
-			}
-			break;
-
-
-		case eOTAState_MCU_Programing:
-		{
-			bool request_data = false;
-			bool start_nxp_flashing = false;
-
-			if (ev.type == EV_ENTER || ev.type == EV_LINK_START)
-			{
-				if (DPB_is_null(&dpack_buffer))
-				{
-					request_data = true;
-				}
-			}
-			else if (ev.type == EV_RECV_DATAPACK)
-			{
-				if (req_package_number == DPB_get_body(&ev.data_package_buffer)->data_package_number)
-				{
-					response_received();
-					req_package_number++;
-
-					if (!DPB_is_null(&dpack_buffer))
-					{
-						CTE_DBG_FATAL("OTAutomata: DataPackage Buffer Overrun!!\n");
-						Terminate(OTA_RESULT_BUFFER_OVERRUN);
-					}
-					else
-					{
-						dpack_buffer = DPB_move(&ev.data_package_buffer);
-
-						if (req_package_number <= ack_packages + 1)
-						{
-							CTE_DBG("write Package.%" PRIu32 "\n", DPB_get_body(&dpack_buffer)->data_package_number);
-
-							request_data = true;
-							start_nxp_flashing = true;
-						}
-						else
-						{
-							CTE_DBG("hold Package.%" PRIu32 "\n", DPB_get_body(&dpack_buffer)->data_package_number);
-						}
-					}
-				}
-			}
-			else if (ev.type == EV_NXP_WRITE_ACK)
-			{
-				unset_timeout_event();
-				nfi_next_block(&nxp_flash_writer);
-
-				if (nfi_write_flash(&nxp_flash_writer))
-				{
-					set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_TIMEOUT));
-				}
-				else
-				{
-					ack_packages++;
-
-					if (ack_packages >= metadata.total_packages)
-					{
-						stateTransfer(eOTAState_MCU_Verification);
-					}
-					else if (!DPB_is_null(&dpack_buffer))
-					{
-						CTE_DBG_PRINT_TS();
-						CTE_DBG("resume Package.%" PRIu32 "\n", DPB_get_body(&dpack_buffer)->data_package_number);
-
-						request_data = true;
-						start_nxp_flashing = true;
-					}
-				}
-			}
-			else if (ev.type == EV_NXP_WRITE_ABORT)
-			{
-				handle_nxp_write_abort(ev.nxp_write_err_code);
-			}
-			else if (ev.type == EV_TIMEOUT)
-			{
-				Terminate(OTA_RESULT_MCU_NO_ANS);
-			}
-
-			if (request_data)
-			{
-				if (req_package_number < metadata.total_packages)
-				{
-					send_RequestData(req_package_number);
-				}
-			}
-
-			if (start_nxp_flashing)
-			{
-				nfi_begin(&nxp_flash_writer, DPB_move(&dpack_buffer));
-				nfi_write_flash(&nxp_flash_writer);
-				set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_TIMEOUT));
-			}
-		}
-			break;
-
-
-		case eOTAState_MCU_Verification:
-
-			if (ev.type == EV_ENTER)
-			{
-				set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_TIMEOUT));
-			}
-			else if (ev.type == EV_NXP_WRITE_FINISH)
-			{
-				acknowledge_finish();
-				vTaskDelay(pdMS_TO_TICKS(10));
-				write_MD5();
-				set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MD5_CALC_WAIT_TIME));
-			}
-			else if (ev.type == EV_MD5_OK)
-			{
-				CTE_DBG("DSB Monitor begin.\n");
-				CTE_RECOVER_set_flag();
-				monitor_dashboard_alive();
-
-				stateTransfer(eOTAState_DONE);
-			}
-			else if (ev.type == EV_MD5_NG)
-			{
-				Terminate(OTA_RESULT_MD5_ERROR);
-			}
-			else if (ev.type == EV_NXP_WRITE_ABORT)
-			{
-				handle_nxp_write_abort(ev.nxp_write_err_code);
-			}
-			else if (ev.type == EV_TIMEOUT)
-			{
-				Terminate(OTA_RESULT_MCU_NO_ANS);
-			}
-			break;
-
-
-		case eOTAState_WIFI_Programing:
-		{
-			bool request_data = false;
-
-			if (ev.type == EV_ENTER || ev.type == EV_LINK_START)
-			{
-				request_data = true;
-			}
-			else if (ev.type == EV_RECV_DATAPACK)
-			{
-				DataPackageBuffer buf = DPB_move(&ev.data_package_buffer);
-
-				if (req_package_number == DPB_get_body(&buf)->data_package_number)
-				{
-					response_received();
-					req_package_number++;
-					CTE_DBG("write DA16200 at 0x%08X\n", DA16200MOD_fw_write_address);
-
-					uint8_t *data_pack = DPB_get_body(&buf)->data;
-					UINT pack_length = DPB_data_length(&buf);
-
-					if (TRUE == writeDataToFlash(DA16200MOD_fw_write_address, data_pack, pack_length))
-					{
-						mbedtls_md5_update_ret(&MD5_calc, data_pack, pack_length);
-						DA16200MOD_fw_write_address += pack_length;
-						request_data = true;
-					}
-					else
-					{
-						Terminate(OTA_RESULT_WIFI_FW_CRC);
-					}
-				}
-
-				release_DataPackageBuffer(&buf);
-			}
-			else if (ev.type == EV_TIMEOUT)
-			{
-				Terminate(OTA_RESULT_WIFI_UPDATE_TIMEOUT);
-			}
-
-			if (request_data)
-			{
-				if (req_package_number < metadata.total_packages)
-				{
-					send_RequestData(req_package_number);
-					set_timeout_event(pdMS_TO_TICKS(CTE_OTA_WIFI_DATA_TIMEOUT));
-				}
-				else
-				{
-					unsigned char md5_hash[16];
-					mbedtls_md5_finish_ret(&MD5_calc, md5_hash);
-					CTE_DBG("calc MD5:\n");
-					md5dump(md5_hash);
-					CTE_DBG("recv MD5:\n");
-					md5dump(metadata.md5);
-
-					if (0 != memcmp(md5_hash, metadata.md5, 16))
-					{
-						PRINTF("Update DA16200: Transmission Corrupted.\n");
-						Terminate(OTA_RESULT_MD5_ERROR);
-					}
-					else if (!ota_update_sflash_crc(get_new_firmware_address()))
-					{
-						PRINTF("Update DA16200: Bad Firmware/Flash\n");
-						Terminate(OTA_RESULT_WIFI_FW_CRC);
-					}
-					else
-					{
-						PRINTF("Update DA16200: Check OK, current boot_idx = %d\n", get_cur_boot_index());
-						ota_update_toggle_boot_index();
-
-						stateTransfer(eOTAState_DONE);
-					}
-				}
-			}
-		}
-			break;
-
-
-		case eOTAState_DONE:
-
-			if (ev.type == EV_ENTER)
-			{
-				g_ota_result = OTA_RESULT_DONE;
-
-#ifdef ENABLE_CTE_DBG
-				ota_profiling_report();
-#endif
-				switch (metadata.ota_type)
-				{
-				case OTA_TYPE_MAIN:
-					PRINTF("OTAutomata will restart soon...\n");
-					set_timeout_event(pdMS_TO_TICKS(CTE_OTA_RESTART_STATE_MACHINE_DELAY));
+	
+		switch (g_ota_server_state) {//John_9999 OTA state
+			case eOTAState_INIT: {
+		    	if (ev.type == EV_LINK_START) {
+					CTE_DBG("JJR INIT INSIDE\n");//JJR
+		        	release_DataPackageBuffer(&dpack_buffer);
+		        	nfi_cleanup(&nxp_flash_writer);
+					#ifdef ENABLE_CTE_DBG
+		        	profiling_total_tcp_connect_times = 1;
+		        	profiling_OTA_start_time = xTaskGetTickCount();
+					#endif
+		        	stateTransfer(eOTAState_GetMetadata);
+		    	}
+			} break;
+			case eOTAState_GetMetadata: {
+		
+				if(OneButton) {//JJR
+					OneButton = false;
+					send_GetMeta(); 
 					break;
+				} 
 
-				case OTA_TYPE_WIFI:
-					PRINTF("DA16200 will reboot after 3 sec...\n");
-					set_timeout_event(pdMS_TO_TICKS(3000));
-					break;
+		    	if (ev.type == EV_ENTER) {
+		        	send_GetMeta();
+		    	}
+		    	if (ev.type == EV_LINK_START) {
+		        	send_GetMeta();
+		    	} else if (ev.type == EV_RECV_METADATA) {
+		        	if (metadata_is_ready()) {
+		            	response_received();
+		            	PRINTF("total size = %" PRIu32 "\n", metadata.total_size);
+		            	PRINTF("total packages = %" PRIu32 "\n", metadata.total_packages);
+		            	CTE_DBG("MD5:\n");
+		            	memory_dump(metadata.md5, 16);
+		            	if (metadata.total_packages < 2 && metadata.ota_type != OTA_TYPE_EXIT) {//JJR
+		                	PRINTF("[BAD META] total packages too few\n");
+		                	Terminate(OTA_RESULT_BAD_METADATA);
+		            	} else if (!check_packages_amount() && metadata.ota_type != OTA_TYPE_EXIT) {//JJR
+		                	PRINTF("[BAD META] total size not match packages\n");
+		                	Terminate(OTA_RESULT_BAD_METADATA);
+		            	} else {
+		                	switch (metadata.ota_type) { // begin switch ota_type
+								case OTA_TYPE_BLE: /*JJR*/
+								case OTA_TYPE_BT:  /*JJR*/
+		                		case OTA_TYPE_MAIN: {
+		                    		PRINTF("OTA Update: %d\n",metadata.ota_type);
+		                    		if (metadata.total_size > CTE_OTA_MAIN_FW_SIZE_LIMIT) {
+		                        		PRINTF("[BAD META] too big\n");
+		                        		Terminate(OTA_RESULT_BAD_METADATA);
+		                            } else {
+		                                stateTransfer(eOTAState_WaitErase); //John_9999 main MCU start point
+		                            }
+		                    	} break;
 
-				default:
-					CTE_DBG_FATAL("State DONE: unknown OTA Type %u\n", metadata.ota_type);
-					//should not happend. restart automata fast.
-					set_timeout_event(pdMS_TO_TICKS(3000));
-				}
+		                		case OTA_TYPE_WIFI: {
+		                        	PRINTF("OTA Update: WIFI\n");
+		                    		if (metadata.total_size > CTE_OTA_WIFI_FW_SIZE_LIMIT) {
+		                        		PRINTF("[BAD META] too big\n");
+		                        		Terminate(OTA_RESULT_BAD_METADATA);
+		                    		} else {
+		                        		DA16200MOD_fw_write_address = get_new_firmware_address();
+		                        		mbedtls_md5_starts_ret(&MD5_calc);
+		                        		req_package_number = 0;
+		                        		stateTransfer(eOTAState_WIFI_Programing); //John_9999 wifi start point
+		                			}
+		                        } break;
+		                		case OTA_TYPE_EXIT: {
+		                    		PRINTF("Quit OTA\n");
+									stateTransfer(eOTAState_DONE); //JJR quit OTA
+		                 		} break;
 
-				send_FIN();
-			}
-			else if (ev.type == EV_LINK_START)
-			{
-				g_ota_result = OTA_RESULT_DONE;
-				send_FIN();
-			}
-			else if (ev.type == EV_TIMEOUT)
-			{
-				if (metadata.ota_type == OTA_TYPE_WIFI)
-				{
-					reboot_func(SYS_REBOOT_POR);
-				}
-
-				init_automata();
-			}
-			break;
-
-
-		case eOTAState_Terminated:
-
-			if (ev.type == EV_ENTER)
-			{
-				send_FIN();
-
-#ifdef ENABLE_CTE_DBG
-				ota_profiling_report();
-#else
-				PRINTF("OTA Update Result = %d\n", g_ota_result);
-#endif
-
-				if (g_ota_result == OTA_RESULT_MCU_NO_ANS)
-				{
-					PRINTF("MCU will reboot soon...\n");
-					set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_REBOOT_DELAY));
-				}
-			}
-			else if (ev.type == EV_LINK_START)
-			{
-				send_FIN();
-			}
-			else if (ev.type == EV_TIMEOUT)
-			{
-				CTE_NXP_BOOTMODE(NXP_BOOT_NORMAL);
-				CTE_NXP_RESET();
-			}
-			break;
-
-
-		default:
-			CTE_DBG_FATAL("Unknown OTA Automata State %d\n", g_ota_server_state);
-			Terminate(OTA_RESULT_DEBUG_2);
-		}
+		                		default: {
+		                    		PRINTF("Unknown OTA Type = %02X\n", metadata.ota_type);
+		                    		Terminate(OTA_RESULT_UNKNOWN_OTA_TYPE);
+		                		} break;
+		                	} //end switch ota_type
+		                }
+		            } else {
+		            	CTE_DBG_XXX();
+		            	CTE_DBG("ghost EV_RECV_METADATA !!\n");
+		            }
+		        }
+		    } break;
 
 
+			case eOTAState_WaitErase: {
+		    	if (ev.type == EV_ENTER) {
+		        	write_fw_size();
+		        	uint32_t timeout = metadata.total_size / 153 + 10000;
+		        	// avoid overflow
+		        	if (timeout >= portMAX_DELAY / 1000 - 20000) {
+		            	timeout = portMAX_DELAY / 1000 - 20000;
+		        	}
+		        	CTE_DBG("erase waiting timeout: %" PRIu32 " ms\n", timeout);
+		        	set_timeout_event(pdMS_TO_TICKS(timeout + 10000)); //JJR adjust timeout according to firmware size,add 10s margin
+		    	} else if (ev.type == EV_ERASE_OK) {
+		        	req_package_number = 0;
+		        	ack_packages = 0;
+					CTE_DBG("JJR ERASEOK\n");//JJR
+		        	stateTransfer(eOTAState_MCU_Programing);
+		    	} else if (ev.type == EV_ERASE_FAIL) {
+		        	Terminate(OTA_RESULT_ERASE_FAIL);
+		    	} else if (ev.type == EV_TIMEOUT) {
+		        	Terminate(OTA_RESULT_MCU_NO_ANS);
+		    	}
+			} break;
+
+
+			case eOTAState_MCU_Programing: {
+		    	bool request_data = false;
+		    	bool start_nxp_flashing = false;
+		    	if (ev.type == EV_ENTER || ev.type == EV_LINK_START) {
+		        	if (DPB_is_null(&dpack_buffer)){
+		            	request_data = true;
+		        	}
+		    	} else if (ev.type == EV_RECV_DATAPACK) {
+		        	if (req_package_number == DPB_get_body(&ev.data_package_buffer)->data_package_number) {
+		            	response_received();
+		            	req_package_number++;
+		            	if (!DPB_is_null(&dpack_buffer)) {
+		                	CTE_DBG_FATAL("OTAutomata: DataPackage Buffer Overrun!!\n");
+		                	Terminate(OTA_RESULT_BUFFER_OVERRUN);
+		            	} else {
+		                	dpack_buffer = DPB_move(&ev.data_package_buffer);
+		                	if (req_package_number <= ack_packages + 1) {
+		                    	CTE_DBG("write Package.%" PRIu32 "\n", DPB_get_body(&dpack_buffer)->data_package_number);		                    request_data = true;
+		                    	start_nxp_flashing = true;
+		                	} else {
+		                    	CTE_DBG("hold Package.%" PRIu32 "\n", DPB_get_body(&dpack_buffer)->data_package_number);
+		                	}
+		            	}
+		            }
+		    	} else if (ev.type == EV_NXP_WRITE_ACK) {
+		        	unset_timeout_event();
+		        	nfi_next_block(&nxp_flash_writer);
+		        	if (nfi_write_flash(&nxp_flash_writer)) {
+		            	set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_TIMEOUT));
+		        	} else {
+		            	ack_packages++;
+		            	if (ack_packages >= metadata.total_packages) {
+		                	stateTransfer(eOTAState_MCU_Verification);
+		            	} else if (!DPB_is_null(&dpack_buffer)) {
+		                	CTE_DBG_PRINT_TS();
+		                	CTE_DBG("resume Package.%" PRIu32 "\n", DPB_get_body(&dpack_buffer)->data_package_number);
+		                	request_data = true;
+		                	start_nxp_flashing = true;
+		            	}
+		        	}
+		    	} else if (ev.type == EV_NXP_WRITE_ABORT) {
+		        	handle_nxp_write_abort(ev.nxp_write_err_code);
+		        } else if (ev.type == EV_TIMEOUT) {
+		        	Terminate(OTA_RESULT_MCU_NO_ANS);
+		    	}
+
+		    	if (request_data) {
+		        	if (req_package_number < metadata.total_packages) {
+		            	send_RequestData(req_package_number);
+		        	}
+		    	}
+
+		    	if (start_nxp_flashing) {
+		        	nfi_begin(&nxp_flash_writer, DPB_move(&dpack_buffer));
+		        	nfi_write_flash(&nxp_flash_writer);
+		        	set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_TIMEOUT));
+		    	}
+			} break;
+
+
+			case eOTAState_MCU_Verification: {
+		    	if (ev.type == EV_ENTER) {
+		        	set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_TIMEOUT));
+		    	} else if (ev.type == EV_NXP_WRITE_FINISH) {
+		        	acknowledge_finish();
+		        	vTaskDelay(pdMS_TO_TICKS(10));
+		        	write_MD5();
+		        	set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MD5_CALC_WAIT_TIME));
+		    	} else if (ev.type == EV_MD5_OK) {
+		        	CTE_DBG("DSB Monitor begin.\n");
+					if(metadata.ota_type == OTA_TYPE_MAIN) { //JJR
+                       CTE_RECOVER_set_flag();
+		        	   monitor_dashboard_alive();
+					}
+		        	stateTransfer(eOTAState_DONE);
+		    	} else if (ev.type == EV_MD5_NG) {
+		        	Terminate(OTA_RESULT_MD5_ERROR);
+		    	} else if (ev.type == EV_NXP_WRITE_ABORT) {
+		        	handle_nxp_write_abort(ev.nxp_write_err_code);
+		    	} else if (ev.type == EV_TIMEOUT) {
+		        	Terminate(OTA_RESULT_MCU_NO_ANS);
+		        }
+		    } break;
+
+
+			case eOTAState_WIFI_Programing: {
+		    	bool request_data = false;
+		    	if (ev.type == EV_ENTER || ev.type == EV_LINK_START) {
+		        	request_data = true;
+		    	} else if (ev.type == EV_RECV_DATAPACK) {
+		        	DataPackageBuffer buf = DPB_move(&ev.data_package_buffer);
+		        	if (req_package_number == DPB_get_body(&buf)->data_package_number) {
+		            	response_received();
+		            	req_package_number++;
+		            	CTE_DBG("write DA16200 at 0x%08X\n", DA16200MOD_fw_write_address);
+		            	uint8_t *data_pack = DPB_get_body(&buf)->data;
+		            	UINT pack_length = DPB_data_length(&buf);
+		            	if (TRUE == writeDataToFlash(DA16200MOD_fw_write_address, data_pack, pack_length)) {
+		                	mbedtls_md5_update_ret(&MD5_calc, data_pack, pack_length);
+		                	DA16200MOD_fw_write_address += pack_length;
+		                	request_data = true;
+		            	} else {
+		                	Terminate(OTA_RESULT_WIFI_FW_CRC);
+		            	}
+		        	}
+		        	release_DataPackageBuffer(&buf);
+		    	} else if (ev.type == EV_TIMEOUT) {
+		        	Terminate(OTA_RESULT_WIFI_UPDATE_TIMEOUT);
+		    	}
+
+		    	if (request_data) {
+		        	if (req_package_number < metadata.total_packages) {
+		            	send_RequestData(req_package_number);
+		            	set_timeout_event(pdMS_TO_TICKS(CTE_OTA_WIFI_DATA_TIMEOUT));
+		        	} else {
+		            	unsigned char md5_hash[16];
+		            	mbedtls_md5_finish_ret(&MD5_calc, md5_hash);
+		            	CTE_DBG("calc MD5:\n");
+		            	md5dump(md5_hash);
+		            	CTE_DBG("recv MD5:\n");
+		            	md5dump(metadata.md5);
+		            	if (0 != memcmp(md5_hash, metadata.md5, 16)) {
+		                	PRINTF("Update DA16200: Transmission Corrupted.\n");
+		                	Terminate(OTA_RESULT_MD5_ERROR);
+		            	} else if (!ota_update_sflash_crc(get_new_firmware_address())) {
+		                	PRINTF("Update DA16200: Bad Firmware/Flash\n");
+		                	Terminate(OTA_RESULT_WIFI_FW_CRC);
+		            	} else {
+		                	PRINTF("Update DA16200: Check OK, current boot_idx = %d\n", get_cur_boot_index());
+		                	ota_update_toggle_boot_index();
+		                	stateTransfer(eOTAState_DONE);
+		            	}
+		        	}
+		    	}
+			} break;
+
+			case eOTAState_DONE: {
+		    	if (ev.type == EV_ENTER) {
+		        	g_ota_result = OTA_RESULT_DONE;
+					#ifdef ENABLE_CTE_DBG
+		        		ota_profiling_report();
+					#endif
+		        	switch (metadata.ota_type) {
+		        		case OTA_TYPE_MAIN:
+		            		PRINTF("OTAutomata will restart after %d sec...\n", CTE_OTA_RESTART_STATE_MACHINE_DELAY / 1000);
+		            		//set_timeout_event(pdMS_TO_TICKS(CTE_OTA_RESTART_STATE_MACHINE_DELAY));//JJR
+						    unset_timeout_event();
+							send_FIN();//JJR
+							init_automata_OneButton();//JJR
+							OneButton = true;//JJR
+							release_DataPackageBuffer(&dpack_buffer);//JJR
+		        	        nfi_cleanup(&nxp_flash_writer);//JJR
+							
+		            	break;
+
+		        		case OTA_TYPE_WIFI:
+		            		PRINTF("DA16200 will reboot after %d sec...\n",  CTE_OTA_RESTART_WIFI_DELAY / 1000);
+		            		//set_timeout_event(pdMS_TO_TICKS(CTE_OTA_RESTART_WIFI_DELAY));
+							unset_timeout_event();
+							send_FIN();//JJR
+							init_automata_OneButton();//JJR
+							OneButton = true;//JJR
+							release_DataPackageBuffer(&dpack_buffer);//JJR
+		        	        nfi_cleanup(&nxp_flash_writer);//JJR
+		            	break;
+
+		        		case OTA_TYPE_BT://John_9999 reboot BT!
+		            		//PRINTF("OTA Update: BT reboot in %d sec\n", CTE_OTA_RESTART_BT_DELAY/1000);
+		            		//set_timeout_event(pdMS_TO_TICKS(CTE_OTA_RESTART_BT_DELAY));
+							PRINTF("OTA Update: BT reboot in %d sec\n", CTE_OTA_RESTART_STATE_MACHINE_DELAY/1000);
+							unset_timeout_event();
+							send_FIN();//JJR
+							init_automata_OneButton();//JJR
+							OneButton = true;//JJR
+							release_DataPackageBuffer(&dpack_buffer);//JJR
+		        	        nfi_cleanup(&nxp_flash_writer);//JJR
+		            	break;
+
+		        		case OTA_TYPE_BLE: //John_9999 reboot BLE!
+		            		PRINTF("OTA Update: BLE reboot in %d sec\n", CTE_OTA_RESTART_BLE_DELAY/1000);//JJR
+							unset_timeout_event();//JJR
+							send_FIN();//JJR
+							init_automata_OneButton();//JJR
+							OneButton = true;//JJR
+							release_DataPackageBuffer(&dpack_buffer);//JJR
+		        	        nfi_cleanup(&nxp_flash_writer);//JJR
+		            	break;
+
+                        case OTA_TYPE_EXIT: //JJR Quit OTA
+		            		PRINTF("OTA Update: Quit OTA in %d sec\n", CTE_OTA_RESTART_BLE_DELAY/1000);
+							unset_timeout_event();//JJR
+		            		//set_timeout_event(pdMS_TO_TICKS(CTE_OTA_RESTART_BLE_DELAY));
+							output_AT_style_async_msg("+METAe00000000");//JJR//for prograss check
+							send_DISCON();//JJR
+		            	break;
+		        		default:
+		            		CTE_DBG_FATAL("State DONE: unknown OTA Type %u\n", metadata.ota_type);
+		            		//should not happend. restart automata fast.
+		            		set_timeout_event(pdMS_TO_TICKS(CTE_OTA_UNKNOW_DELAY));
+		        	}
+		        	// send_FIN(); JJR
+		    	} else if (ev.type == EV_LINK_START) {
+		        	g_ota_result = OTA_RESULT_DONE;
+		       	 	send_FIN();
+		    	} else if (ev.type == EV_TIMEOUT) {
+		        	if (metadata.ota_type == OTA_TYPE_WIFI) {
+		            	reboot_func(SYS_REBOOT_POR);
+					}
+		        	init_automata();
+		    	}
+			} break;
+
+
+			case eOTAState_Terminated: {
+		    	if (ev.type == EV_ENTER) {
+		        	send_FIN();
+					#ifdef ENABLE_CTE_DBG
+		        		ota_profiling_report();
+					#else
+		        		PRINTF("OTA Update Result = %d\n", g_ota_result);
+					#endif
+
+		        	if (g_ota_result == OTA_RESULT_MCU_NO_ANS) {
+		            	PRINTF("MCU will reboot soon...\n");
+		            	set_timeout_event(pdMS_TO_TICKS(CTE_OTA_MCU_STUCK_REBOOT_DELAY));
+		        	}
+		    	} else if (ev.type == EV_LINK_START) {
+		        	send_FIN();
+		    	}	else if (ev.type == EV_TIMEOUT) {
+		        	CTE_NXP_BOOTMODE(NXP_BOOT_NORMAL);
+		        	CTE_NXP_RESET();
+		    	}
+			} break;
+
+
+			default: {
+		    	CTE_DBG_FATAL("Unknown OTA Automata State %d\n", g_ota_server_state);
+		    	Terminate(OTA_RESULT_DEBUG_2);
+			} break;
+		}// end switch state
 		// cleanup unused data package
-		if (ev.type == EV_RECV_DATAPACK)
-		{
+		if (ev.type == EV_RECV_DATAPACK){
 			release_DataPackageBuffer(&ev.data_package_buffer);
 		}
-	}
+	}// while(1)
 }
 
 
@@ -1621,126 +1555,99 @@ static void Task_OtaUpdateReceiver(void *args)
 	while (1)
 	{
 		int sock;
-		if (xQueueReceive(queue_socket, &sock, portMAX_DELAY) == pdTRUE)
-		{
+		if (xQueueReceive(queue_socket, &sock, portMAX_DELAY) == pdTRUE) {
 			bool waiting_body = false;
-
 			PacketCollectHelper collector;
 			pch_init(&collector);
-
 			ssize_t recv_len;
-#define CLOSE_CONNECTION() recv_len = 0
-
+            #define CLOSE_CONNECTION() recv_len = 0
 			pch_expected_length(&collector, &header, sizeof(header));
 
-			do
-			{
-				if (pch_receive(&collector, sock, &recv_len))
-				{
-					if (!waiting_body)
-					{
+			do {
+				if (pch_receive(&collector, sock, &recv_len)) {
+					if (!waiting_body) {
 						CTE_DBG_PRINT_TS();
 						CTE_DBG("Header:\n");
 						memory_dump(&header, sizeof(header));
 
 						header.body_length = ntohs(header.body_length);
 
-						switch (header.ptype)
-						{
-						case PTYPE_AnswerMeta:
-							if (header.body_length == sizeof(OTA_packet_body_AnswerMeta_t))
-							{
-								pch_expected_length(&collector, &body, header.body_length);
-								waiting_body = true;
-							}
-							else
-							{
-								CTE_DBG("ill-formed AnswerMeta: %u\n", header.body_length);
-								CLOSE_CONNECTION();
-							}
-							break;
-
-						case PTYPE_DataPackage:
-							if (header.body_length <= sizeof(OTA_packet_body_DataPackage_t)
-							&&  header.body_length >= DATAPACKAGE_BODY_MINIMUM_LENGTH)
-							{
-								pch_expected_length(&collector, &body, header.body_length);
-								waiting_body = true;
-							}
-							else
-							{
-								CTE_DBG("ill-formed DataPackage: %u\n", header.body_length);
-								CLOSE_CONNECTION();
-							}
-							break;
-
-						default:
-							// unknown or unavailable PTYPE, close connection
-							CTE_DBG("invalid PTYPE: %02Xh\n", header.ptype);
-							CLOSE_CONNECTION();
-						}
-					}
-					else
-					{
-						waiting_body = false;
-						pch_expected_length(&collector, &header, sizeof(header));
-
-						// Check OTA Type
-						if (metadata_is_ready() && metadata.ota_type != header.ota_type)
-						{
-							CTE_DBG("expected OTA_Type=%u, but %u\n", metadata.ota_type, header.ota_type);
-							OTAutomata_event_inconsistent_ota_type();
-						}
-						else
-						{
-							//收到完整的body了，進行endian轉換並印出一些資訊
-
-							switch (header.ptype)
-							{
+						switch (header.ptype) {
 							case PTYPE_AnswerMeta:
-								CTE_DBG("AnswerMeta:\n");
-								memory_dump(&body.AnswerMeta, sizeof(OTA_packet_body_AnswerMeta_t));
-
-								write_ota_update_metadata(
-										header.ota_type,
-										ntohl(body.AnswerMeta.total_size),
-										ntohl(body.AnswerMeta.total_data_packages),
-										body.AnswerMeta.md5);
-								OTAutomata_event_recv_metadata();
+								if (header.body_length == sizeof(OTA_packet_body_AnswerMeta_t)) {
+									pch_expected_length(&collector, &body, header.body_length);
+									waiting_body = true;
+								} else {
+									CTE_DBG("ill-formed AnswerMeta: %u\n", header.body_length);
+									CLOSE_CONNECTION();
+								}
 								break;
 
 							case PTYPE_DataPackage:
-							{
-								body.DataPackage.data_package_number = ntohl(body.DataPackage.data_package_number);
-
-								CTE_DBG("DataPackage %" PRIu32 ", len=%" PRIu32 "\n",
-										body.DataPackage.data_package_number,
-										header.body_length - DATAPACKAGE_DATA_OFFSET);
-
-								DataPackageBuffer buf = allocate_DataPackageBuffer();
-								if (!DPB_is_null(&buf))
-								{
-									DPB_set_data_length(&buf, header.body_length - DATAPACKAGE_DATA_OFFSET);
-									OTA_packet_body_DataPackage_t *dp = DPB_get_body(&buf);
-									memcpy(dp, &body.DataPackage, sizeof(OTA_packet_body_DataPackage_t));
-
-									OTAutomata_event_recv_datapack(DPB_move(&buf));
+								if (header.body_length <= sizeof(OTA_packet_body_DataPackage_t)
+									&&  header.body_length >= DATAPACKAGE_BODY_MINIMUM_LENGTH) {
+									pch_expected_length(&collector, &body, header.body_length);
+									waiting_body = true;
+								}	else {
+									CTE_DBG("ill-formed DataPackage: %u\n", header.body_length);
+									CLOSE_CONNECTION();
 								}
-								else
-								{
-									CTE_DBG_FATAL("No memory for DataPackage!\n");
-									// run out of memory, just discard DataPackage
-								}
-							}
 								break;
 
-							default:
-								CTE_DBG_FATAL("%s(): unknown PType %02X\n", __func__, header.ptype);
+							default://including receive PTYPE_DISCON and send close connection/*JJR*/
+								// unknown or unavailable PTYPE, close connection
+								CTE_DBG("invalid PTYPE: %02Xh\n", header.ptype);
+								CLOSE_CONNECTION();
+						}// end switch ptype
+					} else {
+						waiting_body = false;
+						pch_expected_length(&collector, &header, sizeof(header));
+						// Check OTA Type
+						if (metadata_is_ready() && metadata.ota_type != header.ota_type) {
+							CTE_DBG("expected OTA_Type=%u, but %u\n", metadata.ota_type, header.ota_type);
+							OTAutomata_event_inconsistent_ota_type();
+						} else {
+							//收到完整的body了，進行endian轉換並印出一些資訊
+							switch (header.ptype) {
+								case PTYPE_AnswerMeta:
+									CTE_DBG("AnswerMeta:\n");
+									memory_dump(&body.AnswerMeta, sizeof(OTA_packet_body_AnswerMeta_t));
+									CTE_DBG("JJR total_size = 0x%08" PRIX32 "\n", body.AnswerMeta.total_size);
+									write_ota_update_metadata(
+										header.ota_type,
+										ntohl(body.AnswerMeta.total_size),
+										ntohl(body.AnswerMeta.total_data_packages),
+										body.AnswerMeta.md5
+									);
+									OTAutomata_event_recv_metadata();
+								break;
+
+								case PTYPE_DataPackage: {
+									body.DataPackage.data_package_number = ntohl(body.DataPackage.data_package_number);
+									CTE_DBG("DataPackage %" PRIu32 ", len=%" PRIu32 "\n",
+									body.DataPackage.data_package_number,
+									header.body_length - DATAPACKAGE_DATA_OFFSET
+									);
+
+									DataPackageBuffer buf = allocate_DataPackageBuffer();
+									if (!DPB_is_null(&buf)) {
+										DPB_set_data_length(&buf, header.body_length - DATAPACKAGE_DATA_OFFSET);
+										OTA_packet_body_DataPackage_t *dp = DPB_get_body(&buf);
+										memcpy(dp, &body.DataPackage, sizeof(OTA_packet_body_DataPackage_t));
+										OTAutomata_event_recv_datapack(DPB_move(&buf));
+									} else {
+										CTE_DBG_FATAL("No memory for DataPackage!\n");
+										// run out of memory, just discard DataPackage
+									}
+								}
+								break;
+
+								default:
+									CTE_DBG_FATAL("%s(): unknown PType %02X\n", __func__, header.ptype);
 							}
 						}
 					}
 				}
-
 			} while (recv_len > 0);
 
 			if (recv_len < 0)
@@ -1750,16 +1657,14 @@ static void Task_OtaUpdateReceiver(void *args)
 			else
 			{
 				CTE_DBG("TCP closed.\n");
-			}
-
-			OTAutomata_event_close_connection(sock);
+			}			
 		}
 	}
 #undef CLOSE_CONNECTION
 }
 
 
-static int init_CTE_OTA(void)
+static int init_CTE_OTA(void) //John_9999 OTA initial
 {
 #define ALLOCATION_CHECK(object) do { \
 	if (object == NULL) { \
@@ -1836,7 +1741,7 @@ static int init_CTE_OTA(void)
 }
 
 
-void UserApp_CTE_OTA(void *args)
+void UserApp_CTE_OTA(void *args) //John_9999
 {
 	DA16X_UNUSED_ARG(args);
 
@@ -1849,7 +1754,7 @@ void UserApp_CTE_OTA(void *args)
 		{
 			int fd = accept(sock_server, NULL, NULL);
 
-			if (fd < 0)
+			if (fd < 0) //error status
 			{
 				//我也不知道什麼狀況會進到這裡啊，加個500ms delay好了.
 				vTaskDelay(pdMS_TO_TICKS(500));

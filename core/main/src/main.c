@@ -131,7 +131,7 @@ HeapRegion_t xHeapRegions[3];
 #endif	/* USING_HEAP_5 */
 
 int
-main (int argc, char* argv[])
+main (int argc, char* argv[]) //John_9999 start up
 {
 	DA16X_UNUSED_ARG(argc);
 	DA16X_UNUSED_ARG(argv);
@@ -199,7 +199,7 @@ main (int argc, char* argv[])
 	}
 #endif	/* USING_HEAP_5 */
 
-	xTaskCreate(system_launcher,
+	xTaskCreate(system_launcher, //John_9999 RTOS initial task
 				"system_launcher",
 				256*3,				// for SecureBoot
 				(void *)NULL,

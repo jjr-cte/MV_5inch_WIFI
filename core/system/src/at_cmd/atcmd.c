@@ -910,54 +910,73 @@ static void monitor_atcmd(void)
     /* For User AT-CMD help */
     reg_user_atcmd_help_cb();
 
-    while (1) {
-        memset(atcmd_uart_mon_buf, 0, USER_ATCMD_BUF);
+    while (1)
+    {
+    	memset(atcmd_uart_mon_buf, 0, USER_ATCMD_BUF);
 
-        major_err_code = gets_atcmd_uart(atcmd_uart_mon_buf);
 
-        if (major_err_code == AT_CMD_ERR_CMD_OK) {
+    	major_err_code = gets_atcmd_uart(atcmd_uart_mon_buf); //John_9999 Do not remove. Removing it will block future Flash updates and may damage the device.
 
+    	if (major_err_code == AT_CMD_ERR_CMD_OK)
+    	{
 #if defined (__OTA_UPDATE_MCU_FW__)
-            if (ota_update_atcmd_parser(atcmd_uart_mon_buf) == OTA_SUCCESS) {
-                major_err_code = AT_CMD_ERR_CMD_OK;
-            } else
+    		if (ota_update_atcmd_parser(atcmd_uart_mon_buf) == OTA_SUCCESS)
+    		{
+    			major_err_code = AT_CMD_ERR_CMD_OK;
+    		}
+    		else
 #endif //(__OTA_UPDATE_MCU_FW__)
-            if (atcmd_uart_mon_buf[0] == ESCAPE_CODE) {
-                /* DATA MODE */
-                esc_cmd_parser(atcmd_uart_mon_buf);
-            } else if (atcmd_uart_mon_buf[0] == NXP_MCUBOOT_STARTBYTE) {
-            	//parse dashboard MCU OTA protocol
-            	nxpcmd_parser((const uint8_t *)atcmd_uart_mon_buf);
+    		{
+    			if (atcmd_uart_mon_buf[0] == ESCAPE_CODE)
+    			{
+    				/* DATA MODE */
+    				esc_cmd_parser(atcmd_uart_mon_buf);
+    			}
+    			else if (atcmd_uart_mon_buf[0] == NXP_MCUBOOT_STARTBYTE)
+    			{
+    				//parse dashboard MCU OTA protocol
+    				nxpcmd_parser((const uint8_t *)atcmd_uart_mon_buf);
 #if defined (__SUPPORT_ATCMD_TLS__)
-            } else if (strncmp(atcmd_uart_mon_buf, ATCMD_TLS_WR_CMD, strlen(ATCMD_TLS_WR_CMD)) == 0) {
-                major_err_code = command_parser_tls_wr(atcmd_uart_mon_buf);
+    			}
+    			else if (strncmp(atcmd_uart_mon_buf, ATCMD_TLS_WR_CMD, strlen(ATCMD_TLS_WR_CMD)) == 0)
+    			{
+    				major_err_code = command_parser_tls_wr(atcmd_uart_mon_buf);
 
-                if (major_err_code == AT_CMD_ERR_UNKNOWN_CMD) {
-                    goto normal_command;
-                }
+    				if (major_err_code == AT_CMD_ERR_UNKNOWN_CMD)
+    				{
+    					goto normal_command;
+    				}
 #endif // __SUPPORT_ATCMD_TLS__
-            } else {
+    			}
+    			else
+    			{
 #if defined (__SUPPORT_ATCMD_TLS__)
-normal_command:
+    				normal_command:
 #endif // __SUPPORT_ATCMD_TLS__
-                cmd_len = strlen(atcmd_uart_mon_buf);
+					cmd_len = strlen(atcmd_uart_mon_buf);
 
-                CTE_DBG("\033[33m%s\033[m\n", atcmd_uart_mon_buf);
+					CTE_DBG("\033[33m%s\033[m\n", atcmd_uart_mon_buf);
 
-                if ((cmd_len > 0) && (USER_ATCMD_BUF > cmd_len)) {
-                    major_err_code = command_parser(atcmd_uart_mon_buf);
+					if ((cmd_len > 0) && (USER_ATCMD_BUF > cmd_len))
+					{
+						major_err_code = command_parser(atcmd_uart_mon_buf);
 
-                    if (major_err_code == AT_CMD_ERR_UNKNOWN_CMD && cmd_len < USER_ATCMD_BUF) {
-                        memset(user_atcmd_buf, 0, USER_ATCMD_BUF);
-                        strncpy(user_atcmd_buf, atcmd_uart_mon_buf, cmd_len);
 
-                        user_atcmd_parser(user_atcmd_buf);
-                    }
-                }
-            }
-        } else {
-            PRINTF_ATCMD("\r\nERROR:%d\r\n", major_err_code);
-        }
+						if (major_err_code == AT_CMD_ERR_UNKNOWN_CMD && cmd_len < USER_ATCMD_BUF)
+						{
+							memset(user_atcmd_buf, 0, USER_ATCMD_BUF);
+							strncpy(user_atcmd_buf, atcmd_uart_mon_buf, cmd_len);
+
+							user_atcmd_parser(user_atcmd_buf);
+						}
+					}
+    			}
+    		}
+    	}
+    	else
+    	{
+    		PRINTF_ATCMD("\r\nERROR:%d\r\n", major_err_code);
+    	}
     }
 }
 #endif // __ATCMD_IF_UART1__ || __ATCMD_IF_UART2__

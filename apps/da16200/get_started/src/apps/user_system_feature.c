@@ -1161,7 +1161,7 @@ UINT factory_reset_default(int reboot_flag)
 /*
  * Information for Console Version display
  */
-void version_display(int argc, char *argv[])
+void version_display(int argc, char *argv[]) //John_9999 show version
 {
     UINT32    sysclock;
     UCHAR    rtos_img_ver_str[DA16X_IH_NMLEN+1] = { 0, };

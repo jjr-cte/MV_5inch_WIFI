@@ -213,11 +213,11 @@ int atcmd_ctever(int argc, char *argv[])
 int atcmd_nxp_conn(int argc, char *argv[])
 {
     int err_code = AT_CMD_ERR_CMD_OK_WO_PRINT;
-
+    CTE_DBG("JJR_atcmd_nxp_conn");
     DA16X_UNUSED_ARG(argc);
 
     CTE_DBG("%s(), %s\n", __func__, argv[0]);
-
+    
     if (0 == strcasecmp(argv[0] + 3, "ERASEOK"))
     {
     	CTE_OTA_Nxp_erase_result(true);

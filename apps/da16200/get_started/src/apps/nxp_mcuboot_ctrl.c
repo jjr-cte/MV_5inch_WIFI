@@ -82,7 +82,7 @@ static void NXP_OTA_UART_WRITE(const void *data, size_t len)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-
+//John_9999 nxp message start
 #define MCUBOOT_PTYPE_ACK		0xA1
 #define MCUBOOT_PTYPE_NAK		0xA2
 #define MCUBOOT_PTYPE_ABORT		0xA3
@@ -90,8 +90,7 @@ static void NXP_OTA_UART_WRITE(const void *data, size_t len)
 #define MCUBOOT_PTYPE_DATA		0xA5
 #define MCUBOOT_PTYPE_PING		0xA6
 #define MCUBOOT_PTYPE_PONG		0xA7
-
-
+//John_9999 nxp message end
 
 void nxp_mcuboot_send_ack(void)
 {

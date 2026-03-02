@@ -493,7 +493,7 @@ static void sflash_pad_settings()
 
 static char ramlib_ptim_init_status = pdTRUE;
 
-int Create_Console_Task(void)
+int Create_Console_Task(void) //John_9999
 {
 // Console_OUT's priority should be higher than system_launcher
 // to prevent uart tx errors.
@@ -838,7 +838,7 @@ finish:
  *  Output    :
  *  Return    :
  ******************************************************************************/
-void system_launcher( void *pvParameters)
+void system_launcher( void *pvParameters) //John_9999 rtos start
 {
 #ifdef USING_RAMLIB
     RAMLIB_SYMBOL_TYPE *ramsymbols = (RAMLIB_SYMBOL_TYPE *)DA16X_RAMSYM_BASE;
@@ -1137,7 +1137,7 @@ void system_launcher( void *pvParameters)
     //==============================================
     // Boot Scenario
     //==============================================
-    boot_scenario();
+    boot_scenario(); //John_9999 start up here
 
 #if defined ( __CONSOLE_CONTROL__ )
     if (dpm_mode_is_wakeup() == TRUE) {

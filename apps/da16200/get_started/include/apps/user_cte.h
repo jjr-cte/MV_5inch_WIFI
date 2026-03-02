@@ -4,21 +4,26 @@
 #include "atcmd.h"
 #include "mbedtls/md5.h"
 
-
-#define CTEVER_P    "P05"	//must be 3 characters
+#define CTEVER_P    "P06"	//must be 3 characters
 #define CTEVER_T    "T01"	//must be 3 characters
 
 
 #define CTE_OTA_SERVER_PORT 			2300		//OTA Server 使用的port
 #define CTE_OTA_KEEPALIVE_INTERVAL 		4000		//KeepAlive發送間隔(unit: ms)
 #define CTE_OTA_MCU_STUCK_TIMEOUT		20000		//MCU卡死的超時長度(unit: ms)
-#define CTE_OTA_MD5_CALC_WAIT_TIME		40000		//等待MCU計算映像檔MD5的時間(unit: ms)
+#define CTE_OTA_MD5_CALC_WAIT_TIME		1300000		//等待MCU計算映像檔MD5的時間(unit: ms)//JJR
 #define CTE_OTA_MCU_STUCK_REBOOT_DELAY	6000		//判定MCU卡死後，延遲多久發RST訊號(unit: ms)
-#define CTE_OTA_MAIN_FW_SIZE_LIMIT		99999999	//主程式尺寸限制(unit: bytes)
-#define CTE_OTA_WIFI_FW_SIZE_LIMIT		1703936		//WIFI韌體尺寸限制(1664KB)
+#define CTE_OTA_MAIN_FW_SIZE_LIMIT		0x1E00000	//主程式尺寸限制(unit: bytes)
+#define CTE_OTA_WIFI_FW_SIZE_LIMIT		0x1A0000	//WIFI韌體尺寸限制(1664KB)
+#define CTE_OTA_BT_FW_SIZE_LIMIT        0x200000    //BT dummy limit = 2MB (TBD)
+#define CTE_OTA_BLE_FW_SIZE_LIMIT       0x200000    //BLE dummy limit = 2MB (TBD)
 #define CTE_OTA_TCP_ACCEPT_COOLDOWN		300			//OTA Server accept客戶端的間隔(unit: ms)
 #define CTE_OTA_WIFI_DATA_TIMEOUT		35000		//超過多久沒收到WIFI韌體就判為錯誤(unit: ms)
 #define CTE_OTA_RESTART_STATE_MACHINE_DELAY		12000	//更新成功後多久重啟OTA狀態機(unit: ms)
+#define CTE_OTA_RESTART_WIFI_DELAY      3000        //更新成功後多久重啟WIFI(unit: ms)
+#define CTE_OTA_RESTART_BT_DELAY      5000        //更新成功後多久重啟BT(unit: ms)
+#define CTE_OTA_RESTART_BLE_DELAY      5000        //更新成功後多久重啟BLE(unit: ms)
+#define CTE_OTA_UNKNOW_DELAY            3000        //unkonw reboot
 
 #define CTE_RECOVER_INIT_WAIT_TIME		2500	// 更新後等待MCU重開的時間
 #define CTE_RECOVER_POLLING_INTERVAL	300		// alive polling間隔
