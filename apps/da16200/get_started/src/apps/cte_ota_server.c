@@ -294,7 +294,7 @@ struct OTAUpdateMetaData
 	uint8_t md5[16];
 };
 
-static struct OTAUpdateMetaData metadata;
+struct OTAUpdateMetaData metadata;
 
 
 static void initialize_ota_update_metadata(void)
@@ -486,7 +486,8 @@ static void pch_expected_length(PacketCollectHelper *_this, void *buffer, ssize_
 /// @return true if expected length is received
 static bool pch_receive(PacketCollectHelper *_this, int sock, ssize_t *p_recv_len)
 {
-	ssize_t recv_len = recv(sock, _this->front, _this->expect, 0);
+	ssize_t recv_len = recv(sock, _this->front, _this->expect, 0);//JJR
+	//ssize_t recv_len = recv(sock, _this->front, _this->expect, MSG_WAITALL);
 	*p_recv_len = recv_len;
 
 	if (recv_len > 0)
@@ -969,6 +970,11 @@ static void output_AT_style_async_msg(char *s)
 	PRINTF_ATCMD("\r\n%s\r\n", s);
 }
 
+static void send_WiFi_prgrass(char *progress, char *total) //JJR create
+{
+	PRINTF_ATCMD("%s:%s:", progress, total);
+}
+
 
 static void write_fw_size(void)
 {
@@ -997,8 +1003,12 @@ static void write_fw_size(void)
 	else if(metadata.ota_type == OTA_TYPE_BLE)
 	{
 		snprintf(buf, sizeof(buf), "+METAd%08" PRIu32, metadata.total_size);
+	} 
+	else if(metadata.ota_type == OTA_TYPE_EXIT)
+	{
+		snprintf(buf, sizeof(buf), "+METAe%08" PRIu32, metadata.total_size);
 	}
-	output_AT_style_async_msg(buf);
+	output_AT_style_async_msg(buf);	
 }
 
 
@@ -1245,6 +1255,7 @@ static void Task_OtaUpdateAutomata(void *args)
 		                        		PRINTF("[BAD META] too big\n");
 		                        		Terminate(OTA_RESULT_BAD_METADATA);
 		                    		} else {
+										write_fw_size();//JJR 
 		                        		DA16200MOD_fw_write_address = get_new_firmware_address();
 		                        		mbedtls_md5_starts_ret(&MD5_calc);
 		                        		req_package_number = 0;
@@ -1253,7 +1264,8 @@ static void Task_OtaUpdateAutomata(void *args)
 		                        } break;
 		                		case OTA_TYPE_EXIT: {
 		                    		PRINTF("Quit OTA\n");
-									stateTransfer(eOTAState_DONE); //JJR quit OTA
+									stateTransfer(eOTAState_WaitErase);
+									//stateTransfer(eOTAState_DONE); //JJR quit OTA
 		                 		} break;
 
 		                		default: {
@@ -1280,6 +1292,11 @@ static void Task_OtaUpdateAutomata(void *args)
 		        	}
 		        	CTE_DBG("erase waiting timeout: %" PRIu32 " ms\n", timeout);
 		        	set_timeout_event(pdMS_TO_TICKS(timeout + 10000)); //JJR adjust timeout according to firmware size,add 10s margin
+					if(metadata.ota_type == OTA_TYPE_EXIT) { //JJR
+						CTE_DBG("Quit OTA, skip erase\n");
+						unset_timeout_event();
+						stateTransfer(eOTAState_DONE);
+					}
 		    	} else if (ev.type == EV_ERASE_OK) {
 		        	req_package_number = 0;
 		        	ack_packages = 0;
@@ -1293,7 +1310,7 @@ static void Task_OtaUpdateAutomata(void *args)
 			} break;
 
 
-			case eOTAState_MCU_Programing: {
+			case eOTAState_MCU_Programing: {  
 		    	bool request_data = false;
 		    	bool start_nxp_flashing = false;
 		    	if (ev.type == EV_ENTER || ev.type == EV_LINK_START) {
@@ -1405,6 +1422,13 @@ static void Task_OtaUpdateAutomata(void *args)
 
 		    	if (request_data) {
 		        	if (req_package_number < metadata.total_packages) {
+						char progress[4];//JJR
+					  	uint32_t req_package_number_net = req_package_number + 1;//JJR
+						snprintf(progress, sizeof(progress), "%03lu", req_package_number_net);//JJR
+						char total_packages[4];  // 足夠放數字字串//JJR
+                        snprintf(total_packages, sizeof(total_packages), "%03lu", metadata.total_packages);//JJR
+                        send_WiFi_prgrass(progress,total_packages);//JJR
+						//vTaskDelay(pdMS_TO_TICKS(1000));//JJR add delay to avoid flooding
 		            	send_RequestData(req_package_number);
 		            	set_timeout_event(pdMS_TO_TICKS(CTE_OTA_WIFI_DATA_TIMEOUT));
 		        	} else {
@@ -1485,7 +1509,7 @@ static void Task_OtaUpdateAutomata(void *args)
 		            		PRINTF("OTA Update: Quit OTA in %d sec\n", CTE_OTA_RESTART_BLE_DELAY/1000);
 							unset_timeout_event();//JJR
 		            		//set_timeout_event(pdMS_TO_TICKS(CTE_OTA_RESTART_BLE_DELAY));
-							output_AT_style_async_msg("+METAe00000000");//JJR//for prograss check
+							//output_AT_style_async_msg("+METAe00000000");//JJR//for prograss check
 							send_DISCON();//JJR
 		            	break;
 		        		default:

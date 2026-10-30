@@ -31,7 +31,20 @@
  */
 
 #include "user_atcmd.h"
+/*     JJR  Down  */
+typedef uint8_t OtaType_t;
+struct OTAUpdateMetaData
+{
+	bool ready;
 
+	OtaType_t ota_type;
+	uint32_t total_size;
+	uint32_t total_packages;
+	uint8_t md5[16];
+};
+extern struct OTAUpdateMetaData metadata;
+#define OTA_TYPE_WIFI		1
+/*    JJR     UP*/
 #if defined ( __SUPPORT_ATCMD__ )
 
 #undef    __TEST_USER_AT_CMD__
@@ -270,7 +283,8 @@ user_atcmd_result :
         if (result_code == AT_CMD_ERR_CMD_OK) {
             PRINTF_ATCMD("\r\nOK\r\n");
         } else {
-            PRINTF_ATCMD("\r\nERROR:%d\r\n", result_code);
+           if(metadata.ota_type != OTA_TYPE_WIFI) // JJR
+               PRINTF_ATCMD("\r\nERROR:%d\r\n", result_code);
         }
     }
 
